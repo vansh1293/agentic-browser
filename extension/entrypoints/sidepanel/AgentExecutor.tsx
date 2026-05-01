@@ -27,6 +27,7 @@ import {
 	PanelLeft,
 	Loader2,
 	ChevronRight,
+	Phone,
 } from "lucide-react";
 import { wsClient } from "../utils/websocket-client";
 import { parseAgentCommand } from "../utils/parseAgentCommand";
@@ -1281,12 +1282,16 @@ export function AgentExecutor({ wsConnected, onVoiceOpen }: AgentExecutorProps) 
 					{activeSession?.title || "Agentic Browser"}
 				</span>
 				<button
-					className="icon-btn"
 					onClick={onVoiceOpen}
-					title="Voice conversation"
-					style={{ color: 'var(--accent-color)' }}
+					title="Start voice conversation"
+					style={{
+						display: 'flex', alignItems: 'center', gap: 5,
+						color: '#fff', background: 'linear-gradient(135deg,#6d28d9,#8b5cf6)',
+						borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 600,
+						border: 'none', cursor: 'pointer', boxShadow: '0 2px 8px rgba(109,40,217,0.4)',
+					}}
 				>
-					<Mic size={18} />
+					<Phone size={13} /> Talk
 				</button>
 			</div>
 
@@ -1321,6 +1326,15 @@ export function AgentExecutor({ wsConnected, onVoiceOpen }: AgentExecutorProps) 
 									<span className="quick-action-label">{action.label}</span>
 								</button>
 							))}
+							{/* Standalone Voice Chat button — triggers full voice overlay */}
+							<button
+								className="quick-action-card"
+								onClick={onVoiceOpen}
+								style={{ background: 'linear-gradient(135deg, rgba(109,40,217,0.15), rgba(139,92,246,0.1))', border: '1px solid rgba(139,92,246,0.4)' }}
+							>
+								<span className="quick-action-icon" style={{ color: '#a78bfa' }}><Phone size={18} /></span>
+								<span className="quick-action-label">Voice Chat</span>
+							</button>
 						</div>
 					</div>
 				) : (
