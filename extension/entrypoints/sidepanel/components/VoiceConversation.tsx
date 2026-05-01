@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, X, Volume2 } from "lucide-react";
 
 interface VoiceMessage {
@@ -50,36 +50,22 @@ class AudioQueue {
     this.playing = false;
     try { this.ctx.close(); } catch (_) { /* ignore */ }
   }
-
-  get sampleRate() { return this.ctx.sampleRate; }
 }
 
-// ── Waveform bars component ───────────────────────────────────────────────────
+// ── Waveform bars ─────────────────────────────────────────────────────────────
 
 function WaveBars({ active, count = 20 }: { active: boolean; count?: number }) {
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 3,
-      height: 48,
-    }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3, height: 48 }}>
       {Array.from({ length: count }).map((_, i) => (
-        <div
-          key={i}
-          style={{
-            width: 3,
-            borderRadius: 4,
-            background: active
-              ? `hsl(${250 + i * 4}, 80%, 65%)`
-              : "var(--border-color)",
-            height: active ? `${20 + Math.sin(i * 0.8) * 14}px` : "6px",
-            animation: active ? `voiceBar 1.1s ease-in-out infinite` : "none",
-            animationDelay: `${i * 0.05}s`,
-            transition: "height 0.3s ease",
-          }}
-        />
+        <div key={i} style={{
+          width: 3, borderRadius: 4,
+          background: active ? `hsl(${250 + i * 4}, 80%, 65%)` : "var(--border-color)",
+          height: active ? `${20 + Math.sin(i * 0.8) * 14}px` : "6px",
+          animation: active ? `voiceBar 1.1s ease-in-out infinite` : "none",
+          animationDelay: `${i * 0.05}s`,
+          transition: "height 0.3s ease",
+        }} />
       ))}
     </div>
   );
@@ -90,90 +76,96 @@ function WaveBars({ active, count = 20 }: { active: boolean; count?: number }) {
 export function VoiceConversation({ isOpen, onClose, baseUrl }: VoiceConversationProps) {
   const [state, setState] = useState<PipelineState>("idle");
   const [messages, setMessages] = useState<VoiceMessage[]>([]);
-  const [liveText, setLiveText] = useState("");
+  const [assistantLive, setAssistantLive] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioQueueRef = useRef<AudioQueue | null>(null);
+  const userMsgIdRef = useRef<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const getBase = () =>
-    baseUrl || localStorage.getItem("baseUrl") || "http://localhost:5454";
+  const getWsBase = () =>
+    (baseUrl || localStorage.getItem("baseUrl") || "http://localhost:5454")
+      .replace(/^http/, "ws");
 
-  // ── WebSocket connection ────────────────────────────────────────────────────
+  function matchPrefix(bytes: Uint8Array, prefix: string) {
+    const enc = new TextEncoder().encode(prefix);
+    return bytes.length >= enc.length && enc.every((b, i) => bytes[i] === b);
+  }
 
-  const connectWs = useCallback(() => {
-    const wsBase = getBase().replace(/^http/, "ws");
-    const ws = new WebSocket(`${wsBase}/api/voice/ws`);
+  // ── Run full pipeline via WebSocket ────────────────────────────────────────
+
+  const runPipeline = (audioBlob: Blob, history: VoiceMessage[]) => {
+    wsRef.current?.close();
+    const ws = new WebSocket(`${getWsBase()}/api/voice/ws`);
     ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+
+    const decoder = new TextDecoder();
+    let firstTextReceived = false;
+    let assistantText = "";
 
     ws.onopen = () => {
-      // Send conversation history
-      const history = messages.map((m) => ({ role: m.role, content: m.text }));
-      ws.send(JSON.stringify({ history }));
+      // Send history then audio
+      ws.send(JSON.stringify({ history: history.map(m => ({ role: m.role, content: m.text })) }));
+      audioBlob.arrayBuffer().then(ab => ws.send(ab));
     };
 
     ws.onmessage = (evt) => {
-      const data: ArrayBuffer = evt.data;
-      const bytes = new Uint8Array(data);
-
-      // Parse framing prefix
-      const textDecoder = new TextDecoder();
+      const bytes = new Uint8Array(evt.data as ArrayBuffer);
 
       if (matchPrefix(bytes, "TEXT:")) {
-        const text = textDecoder.decode(bytes.slice(5));
-        setLiveText((prev) => prev + text + " ");
+        const text = decoder.decode(bytes.slice(5));
+
+        if (!firstTextReceived) {
+          // First TEXT frame is the STT transcript — update user bubble
+          firstTextReceived = true;
+          setMessages(prev => prev.map(m =>
+            m.id === userMsgIdRef.current ? { ...m, text } : m
+          ));
+        } else {
+          // Subsequent TEXT frames are LLM response tokens
+          assistantText += text + " ";
+          setAssistantLive(assistantText);
+        }
 
       } else if (matchPrefix(bytes, "AUDIO:")) {
-        // 4-byte length header then PCM
-        const len = new DataView(data, 6, 4).getUint32(0, false);
-        const pcm = data.slice(10, 10 + len);
+        const len = new DataView(evt.data as ArrayBuffer, 6, 4).getUint32(0, false);
+        const pcm = (evt.data as ArrayBuffer).slice(10, 10 + len);
         setState("speaking");
         audioQueueRef.current?.enqueue(pcm);
 
       } else if (matchPrefix(bytes, "DONE")) {
         setState("idle");
-        // Commit live text as assistant message
-        setMessages((prev) => {
-          const trimmed = liveText.trim();
-          if (!trimmed) return prev;
-          return [
+        // Commit assistant live text as a real message
+        if (assistantText.trim()) {
+          setMessages(prev => [
             ...prev,
-            { id: Date.now().toString(), role: "assistant", text: trimmed },
-          ];
-        });
-        setLiveText("");
+            { id: Date.now().toString(), role: "assistant", text: assistantText.trim() },
+          ]);
+        }
+        setAssistantLive("");
 
       } else if (matchPrefix(bytes, "ERR:")) {
-        const msg = textDecoder.decode(bytes.slice(4));
-        setError(msg);
+        setError(decoder.decode(bytes.slice(4)));
         setState("idle");
       }
     };
 
     ws.onerror = () => {
-      setError("WebSocket connection failed");
+      setError("Could not connect to voice backend. Is the server running?");
       setState("idle");
     };
 
     ws.onclose = () => { wsRef.current = null; };
-
-    wsRef.current = ws;
-  }, [messages, liveText, baseUrl]);
-
-  function matchPrefix(bytes: Uint8Array, prefix: string) {
-    const enc = new TextEncoder().encode(prefix);
-    if (bytes.length < enc.length) return false;
-    return enc.every((b, i) => bytes[i] === b);
-  }
+  };
 
   // ── Recording ──────────────────────────────────────────────────────────────
 
   const startRecording = async () => {
     setError(null);
-    setLiveText("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioQueueRef.current?.stop();
@@ -181,29 +173,19 @@ export function VoiceConversation({ isOpen, onClose, baseUrl }: VoiceConversatio
 
       const recorder = new MediaRecorder(stream);
       audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         if (blob.size === 0) { setState("idle"); return; }
 
-        // Add user placeholder
-        const userText = "(voice input)";
-        const userId = Date.now().toString();
-        setMessages((prev) => [...prev, { id: userId, role: "user", text: userText }]);
-
+        // Add user bubble with "…" placeholder — will be updated to transcript
+        const uid = Date.now().toString();
+        userMsgIdRef.current = uid;
+        setMessages(prev => [...prev, { id: uid, role: "user", text: "…" }]);
         setState("processing");
-
-        // Open WS and send audio
-        connectWs();
-        // Wait briefly for onopen to fire and history to be sent
-        await new Promise((r) => setTimeout(r, 300));
-        const ab = await blob.arrayBuffer();
-        wsRef.current?.send(ab);
+        runPipeline(blob, messages);
       };
 
       recorder.start();
@@ -211,21 +193,17 @@ export function VoiceConversation({ isOpen, onClose, baseUrl }: VoiceConversatio
       setState("recording");
     } catch (e: any) {
       setError(e.message || "Microphone access denied");
-      setState("idle");
     }
   };
 
-  const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
-    setState("processing");
-  };
+  const stopRecording = () => { mediaRecorderRef.current?.stop(); };
 
   const toggleMic = () => {
     if (state === "recording") stopRecording();
     else if (state === "idle") startRecording();
   };
 
-  // ── Cleanup ────────────────────────────────────────────────────────────────
+  // ── Cleanup on close ───────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!isOpen) {
@@ -233,20 +211,18 @@ export function VoiceConversation({ isOpen, onClose, baseUrl }: VoiceConversatio
       audioQueueRef.current?.stop();
       mediaRecorderRef.current?.stop();
       setState("idle");
-      setLiveText("");
+      setAssistantLive("");
     }
   }, [isOpen]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, liveText]);
+  }, [messages, assistantLive]);
 
   if (!isOpen) return null;
 
   const micActive = state === "recording";
   const busy = state === "processing" || state === "speaking";
-
-  // ── UI ─────────────────────────────────────────────────────────────────────
 
   return (
     <>
@@ -280,113 +256,98 @@ export function VoiceConversation({ isOpen, onClose, baseUrl }: VoiceConversatio
           background: "var(--bg-2)",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Volume2 size={18} style={{ color: "var(--accent-color)" }} />
+            <Volume2 size={18} style={{ color: "#a78bfa" }} />
             <span style={{ fontWeight: 700, fontSize: 15 }}>Voice Conversation</span>
           </div>
-          <button
-            onClick={onClose}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 4 }}
-          >
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 4 }}>
             <X size={22} />
           </button>
         </div>
 
-        {/* Message history */}
+        {/* Messages */}
         <div style={{ flex: 1, overflowY: "auto", padding: "18px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
           {messages.length === 0 && state === "idle" && (
-            <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 60 }}>
-              <p style={{ fontSize: 14 }}>Tap the mic and start talking.</p>
-              <p style={{ fontSize: 12, marginTop: 6, opacity: 0.6 }}>Powered by Whisper + Gemini + Cartesia</p>
+            <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 80 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🎙️</div>
+              <p style={{ fontSize: 14, fontWeight: 600 }}>Tap the mic and start talking</p>
+              <p style={{ fontSize: 12, marginTop: 6, opacity: 0.5 }}>Whisper · Gemini · Cartesia</p>
             </div>
           )}
 
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              style={{
-                alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-                background: m.role === "user" ? "var(--accent-color)" : "var(--bg-3, var(--input-bg))",
-                color: m.role === "user" ? "#fff" : "var(--text-primary)",
-                borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                padding: "10px 14px",
-                maxWidth: "80%",
-                fontSize: 13,
-                lineHeight: 1.5,
-              }}
-            >
+          {messages.map(m => (
+            <div key={m.id} style={{
+              alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+              background: m.role === "user"
+                ? "linear-gradient(135deg,#6d28d9,#8b5cf6)"
+                : "var(--input-bg)",
+              color: m.role === "user" ? "#fff" : "var(--text-primary)",
+              borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+              padding: "10px 14px", maxWidth: "80%", fontSize: 13, lineHeight: 1.5,
+            }}>
               {m.text}
             </div>
           ))}
 
-          {/* Live streaming text */}
-          {liveText && (
+          {/* Live assistant response */}
+          {assistantLive && (
             <div style={{
-              alignSelf: "flex-start",
-              background: "var(--bg-3, var(--input-bg))",
+              alignSelf: "flex-start", background: "var(--input-bg)",
               color: "var(--text-primary)",
               borderRadius: "18px 18px 18px 4px",
-              padding: "10px 14px",
-              maxWidth: "80%",
-              fontSize: 13,
-              lineHeight: 1.5,
-              opacity: 0.85,
-              fontStyle: "italic",
+              padding: "10px 14px", maxWidth: "80%", fontSize: 13, lineHeight: 1.5,
+              opacity: 0.85, fontStyle: "italic",
             }}>
-              {liveText}
-              <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--accent-color)", marginLeft: 6, animation: "pulseMic 1s infinite" }} />
+              {assistantLive}
+              <span style={{
+                display: "inline-block", width: 6, height: 6, borderRadius: "50%",
+                background: "#a78bfa", marginLeft: 6, animation: "pulseMic 1s infinite",
+              }} />
             </div>
           )}
+
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Status / waveform */}
-        <div style={{ padding: "8px 16px", textAlign: "center" }}>
+        {/* Status */}
+        <div style={{ padding: "8px 16px", textAlign: "center", minHeight: 56 }}>
           {state === "recording" && <WaveBars active={true} />}
-          {state === "processing" && (
-            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>Transcribing & generating response…</p>
-          )}
+          {state === "processing" && <p style={{ fontSize: 12, color: "var(--text-muted)" }}>Transcribing & thinking…</p>}
           {state === "speaking" && (
             <div>
               <WaveBars active={true} count={14} />
               <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Speaking…</p>
             </div>
           )}
-          {error && (
-            <p style={{ fontSize: 12, color: "#dc2626", marginBottom: 4 }}>{error}</p>
-          )}
+          {error && <p style={{ fontSize: 12, color: "#dc2626" }}>{error}</p>}
         </div>
 
         {/* Mic button */}
-        <div style={{ padding: "20px 0 32px", display: "flex", justifyContent: "center" }}>
+        <div style={{ padding: "16px 0 28px", display: "flex", justifyContent: "center" }}>
           <button
             onClick={toggleMic}
             disabled={busy}
             style={{
-              width: 72, height: 72, borderRadius: "50%",
-              border: "none", cursor: busy ? "not-allowed" : "pointer",
+              width: 76, height: 76, borderRadius: "50%", border: "none",
+              cursor: busy ? "not-allowed" : "pointer",
               background: micActive
-                ? "linear-gradient(135deg, #7c3aed, #a855f7)"
-                : busy
-                  ? "var(--input-bg)"
-                  : "linear-gradient(135deg, #6d28d9, #8b5cf6)",
+                ? "linear-gradient(135deg,#7c3aed,#a855f7)"
+                : busy ? "var(--input-bg)"
+                : "linear-gradient(135deg,#6d28d9,#8b5cf6)",
               color: "#fff",
               display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: micActive
-                ? "0 0 0 0 rgba(139,92,246,0.6)"
-                : "0 4px 20px rgba(109,40,217,0.4)",
+              boxShadow: micActive ? "none" : "0 4px 24px rgba(109,40,217,0.45)",
               animation: micActive ? "pulseMic 1.2s ease-out infinite" : "none",
               transition: "transform 0.15s, background 0.2s",
-              transform: micActive ? "scale(1.08)" : "scale(1)",
-              opacity: busy ? 0.5 : 1,
+              transform: micActive ? "scale(1.1)" : "scale(1)",
+              opacity: busy ? 0.4 : 1,
             }}
           >
-            {micActive ? <MicOff size={30} /> : <Mic size={30} />}
+            {micActive ? <MicOff size={32} /> : <Mic size={32} />}
           </button>
         </div>
 
-        {/* Hint */}
-        <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-muted)", marginBottom: 16 }}>
-          {micActive ? "Tap again to send" : busy ? "" : "Hold to talk"}
+        <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-muted)", marginBottom: 20 }}>
+          {micActive ? "Tap again to send" : busy ? "" : "Tap to talk"}
         </p>
       </div>
     </>
