@@ -85,6 +85,7 @@ function parseContent(raw: string): string {
 
 interface AgentExecutorProps {
 	wsConnected: boolean;
+	onVoiceOpen?: () => void;
 }
 
 interface ProgressUpdate {
@@ -115,7 +116,7 @@ interface Session {
 	updatedAt: string;
 }
 
-export function AgentExecutor({ wsConnected }: AgentExecutorProps) {
+export function AgentExecutor({ wsConnected, onVoiceOpen }: AgentExecutorProps) {
 	const [goal, setGoal] = useState("");
 	const [isExecuting, setIsExecuting] = useState(false);
 	const [progress, setProgress] = useState<ProgressUpdate[]>([]);
@@ -1279,7 +1280,14 @@ export function AgentExecutor({ wsConnected }: AgentExecutorProps) {
 				<span className="header-title">
 					{activeSession?.title || "Agentic Browser"}
 				</span>
-				<span aria-hidden="true" style={{ width: 28 }} />
+				<button
+					className="icon-btn"
+					onClick={onVoiceOpen}
+					title="Voice conversation"
+					style={{ color: 'var(--accent-color)' }}
+				>
+					<Mic size={18} />
+				</button>
 			</div>
 
 			{/* Center content */}

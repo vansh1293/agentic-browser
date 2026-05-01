@@ -14,6 +14,7 @@ dependencies = [
     { name = "apscheduler" },
     { name = "asyncpg" },
     { name = "bs4" },
+    { name = "cartesia" },
     { name = "composio" },
     { name = "fastapi" },
     { name = "faster-whisper" },
@@ -57,6 +58,7 @@ requires-dist = [
     { name = "apscheduler", specifier = ">=3.10" },
     { name = "asyncpg", specifier = ">=0.29" },
     { name = "bs4", specifier = ">=0.0.2" },
+    { name = "cartesia", specifier = ">=3.0.2" },
     { name = "composio", specifier = ">=0.8.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "faster-whisper", specifier = ">=1.2.1" },
@@ -371,6 +373,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c9/aa/4acaf814ff901145da37332e05bb510452ebed97bc9602695059dd46ef39/bs4-0.0.2.tar.gz", hash = "sha256:a48685c58f50fe127722417bae83fe6badf500d54b55f7e39ffe43b798653925", size = 698, upload-time = "2024-01-17T18:15:47.371Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/51/bb/bf7aab772a159614954d84aa832c129624ba6c32faa559dfb200a534e50b/bs4-0.0.2-py2.py3-none-any.whl", hash = "sha256:abf8742c0805ef7f662dce4b51cca104cffe52b835238afc169142ab9b3fbccc", size = 1189, upload-time = "2024-01-17T18:15:48.613Z" },
+]
+
+[[package]]
+name = "cartesia"
+version = "3.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/65/5c2085821842b334a43025becbb70c52d02a458c0b24f9c1a0912d7e7e13/cartesia-3.0.2.tar.gz", hash = "sha256:beeff16cd5a36d30d908984e84591e6e7c20429e54c5822fca5c16bf26dd805a", size = 584593, upload-time = "2026-02-26T01:34:46.41Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/db/4e7ddf0a31c4c94fa5badd6b1b4fc52733f8bb8b98e4c53293a467b95149/cartesia-3.0.2-py3-none-any.whl", hash = "sha256:ec19decf77cac350a1e38872d50213daecd51839afb522011d68a49dcae6f1b5", size = 170183, upload-time = "2026-02-26T01:34:45.011Z" },
 ]
 
 [[package]]

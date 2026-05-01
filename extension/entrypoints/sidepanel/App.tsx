@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import "./App.css";
 import { AgentExecutor } from "./AgentExecutor";
 import { UnifiedSettingsMenu } from "./components/UnifiedSettingsMenu";
+import { VoiceConversation } from "./components/VoiceConversation";
 import { SignInScreen } from "./components/SignInScreen";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { useAuth } from "./hooks/useAuth";
@@ -54,6 +55,7 @@ function App() {
 		current_session_length: 0,
 	});
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+	const [isVoiceOpen, setIsVoiceOpen] = useState(false);
 	const [themePreference, setThemePreference] = useState<ThemePreference>(() => {
 		if (typeof window === "undefined") return "dark";
 		const saved = localStorage.getItem("theme");
@@ -247,7 +249,12 @@ function App() {
 			</header>
 
 
-			<AgentExecutor wsConnected={wsConnected} />
+			<AgentExecutor wsConnected={wsConnected} onVoiceOpen={() => setIsVoiceOpen(true)} />
+
+			<VoiceConversation
+				isOpen={isVoiceOpen}
+				onClose={() => setIsVoiceOpen(false)}
+			/>
 
 			<UnifiedSettingsMenu
 				user={user}
