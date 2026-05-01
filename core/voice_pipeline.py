@@ -34,8 +34,8 @@ _whisper: WhisperModel | None = None
 def _get_whisper() -> WhisperModel:
     global _whisper
     if _whisper is None:
-        logger.info("Loading faster-whisper model (base)…")
-        _whisper = WhisperModel("base", device="cpu", compute_type="int8")
+        logger.info("Loading faster-whisper model (tiny) for low-latency transcription…")
+        _whisper = WhisperModel("tiny", device="cpu", compute_type="int8")
     return _whisper
 
 
@@ -114,22 +114,22 @@ async def _stream_llm(transcript: str, history: list[dict]) -> AsyncIterator[str
 
 async def _tts_sentence(client: AsyncCartesia, sentence: str) -> bytes:
     """Convert a single sentence to PCM audio bytes via Cartesia."""
-    cartesia_voice_id = "a0e99841-438c-4a64-b679-ae501e7d6091"  # Barbershop Man (neutral)
+    voice_id = "a0e99841-438c-4a64-b679-ae501e7d6091"  # Barbershop Man
 
     output = io.BytesIO()
-    async for chunk in await client.tts.sse(
+    stream = await client.tts.generate_sse(
         transcript=sentence,
-        voice_id=cartesia_voice_id,
+        voice={"mode": "id", "id": voice_id},
         output_format={
             "container": "raw",
             "encoding": "pcm_f32le",
             "sample_rate": 44100,
         },
         model_id="sonic-2",
-    ):
-        if isinstance(chunk, bytes):
-            output.write(chunk)
-        elif hasattr(chunk, "audio"):
+    )
+    async for chunk in stream:
+        # ChunkEvent has .audio bytes
+        if hasattr(chunk, "audio") and chunk.audio:
             output.write(chunk.audio)
 
     return output.getvalue()

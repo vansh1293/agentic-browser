@@ -4,6 +4,8 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from core import get_logger
 from core.voice_pipeline import run_voice_pipeline
 from faster_whisper import WhisperModel
@@ -66,6 +68,65 @@ async def transcribe_voice(file: UploadFile = File(...)):
                 temp_file_path.unlink()
             except Exception as e:
                 logger.error(f"Failed to delete temporary voice file {temp_file_path}: {e}")
+
+
+class SpeakRequest(BaseModel):
+    text: str
+    voice_id: str = "a0e99841-438c-4a64-b679-ae501e7d6091"
+    sample_rate: int = 44100
+
+
+@router.post("/speak")
+async def speak(req: SpeakRequest):
+    """
+    Convert text to streaming PCM audio via Cartesia TTS.
+    Returns raw f32le PCM at 44100 Hz as a streaming response.
+    The text is pre-processed to strip markdown for natural speech.
+    """
+    import re
+    from cartesia import AsyncCartesia
+
+    cartesia_key = os.getenv("CARTESIA_API_KEY", "")
+    if not cartesia_key:
+        raise HTTPException(status_code=500, detail="CARTESIA_API_KEY not configured")
+
+    # Strip markdown so TTS sounds natural
+    text = req.text
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)       # bold
+    text = re.sub(r"\*(.+?)\*", r"\1", text)            # italic
+    text = re.sub(r"#+\s*", "", text)                    # headings
+    text = re.sub(r"```[\s\S]*?```", "", text)           # code blocks
+    text = re.sub(r"`(.+?)`", r"\1", text)               # inline code
+    text = re.sub(r"\[(.+?)\]\(.+?\)", r"\1", text)     # links
+    text = re.sub(r"^\s*[-*]\s+", "", text, flags=re.M) # list bullets
+    text = re.sub(r"\n{2,}", ". ", text)                  # double newlines → pause
+    text = re.sub(r"\n", " ", text)
+    text = text.strip()
+
+    if not text:
+        raise HTTPException(status_code=400, detail="No text to speak after formatting")
+
+    async def generate():
+        async with AsyncCartesia(api_key=cartesia_key) as client:
+            stream = await client.tts.generate_sse(
+                transcript=text,
+                voice={"mode": "id", "id": req.voice_id},
+                output_format={
+                    "container": "raw",
+                    "encoding": "pcm_f32le",
+                    "sample_rate": req.sample_rate,
+                },
+                model_id="sonic-2",
+            )
+            async for chunk in stream:
+                if hasattr(chunk, "audio") and chunk.audio:
+                    yield chunk.audio
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/octet-stream",
+        headers={"X-Sample-Rate": str(req.sample_rate)},
+    )
 
 
 @router.websocket("/ws")
