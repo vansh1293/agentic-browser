@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Info, ChevronDown, Settings2, Link as LinkIcon, Bot, Server, Wrench, KeyRound, Globe, HardDrive, Database, Mic, Volume2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -800,9 +800,17 @@ function VoiceSection({ voice, onChange }: { voice: any; onChange: () => void })
   const qc = useQueryClient();
   const mutation = useMutation({
     mutationFn: (vals: any) => api.voiceSet(vals),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["integrations-status"] });
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["integrations-status"] });
+      // Refetch to get fresh data
+      const fresh = await qc.fetchQuery({ queryKey: ["integrations-status"] });
+      const freshVoice = fresh?.voice?.effective;
+      setLocal(freshVoice);
       onChange();
+      // Emit with FRESH data
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('voice-config-updated', { detail: freshVoice }));
+      }, 100);
     },
   });
 
@@ -815,11 +823,17 @@ function VoiceSection({ voice, onChange }: { voice: any; onChange: () => void })
   });
 
   const [local, setLocal] = useState(voice.effective);
+  
+  // Sync local when voice.effective changes from outside
+  useEffect(() => {
+    setLocal(voice.effective);
+  }, [voice.effective]);
 
   const save = (patch: any) => {
     const next = { ...local, ...patch };
     setLocal(next);
-    mutation.mutate(patch);
+    // Send the FULL updated object, not just patch
+    mutation.mutate(next);
   };
 
   return (
@@ -888,6 +902,15 @@ function VoiceSection({ voice, onChange }: { voice: any; onChange: () => void })
             onChange={(e) => save({ auto_submit: e.target.checked })}
           />
           <label style={{ margin: 0, fontWeight: 500, fontSize: 13, color: "var(--text-primary)" }}>Auto-submit after voice input</label>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input 
+            type="checkbox" 
+            checked={local.auto_speak} 
+            onChange={(e) => save({ auto_speak: e.target.checked })}
+          />
+          <label style={{ margin: 0, fontWeight: 500, fontSize: 13, color: "var(--text-primary)" }}>Auto-speak agent responses</label>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

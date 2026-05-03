@@ -681,9 +681,25 @@ function VoiceSection({ voice, onRefresh }: { voice: any, onRefresh: () => void 
     setConfig(next);
     setSaving(true);
     try {
+      console.log("Saving voice config:", next);
       await api.voiceSet(next);
-      onRefresh();
+      // Force reload after save - emit FRESH data
+      setTimeout(async () => {
+        try {
+          const res = await api.integrationsStatus();
+          const freshVoice = res?.voice?.effective;
+          if (freshVoice) {
+            setConfig(freshVoice);
+            onRefresh?.();
+            console.log("Voice config reloaded after save:", freshVoice);
+            window.dispatchEvent(new CustomEvent('voice-config-updated', { detail: freshVoice }));
+          }
+        } catch (e) {
+          console.error("Failed to reload voice config:", e);
+        }
+      }, 500);
     } catch (e) {
+      console.error("Failed to save voice config:", e);
       alert("Failed to save voice config");
     } finally {
       setSaving(false);
@@ -756,6 +772,15 @@ function VoiceSection({ voice, onRefresh }: { voice: any, onRefresh: () => void 
             onChange={(e) => save({ auto_submit: e.target.checked })}
           />
           <span style={{ fontSize: 11, color: "var(--text-primary)" }}>Auto-submit after voice input</span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+          <input 
+            type="checkbox" 
+            checked={config.auto_speak || false} 
+            onChange={(e) => save({ auto_speak: e.target.checked })}
+          />
+          <span style={{ fontSize: 11, color: "var(--text-primary)" }}>Auto-speak agent responses</span>
         </div>
 
         <div style={{ marginBottom: 8 }}>

@@ -117,6 +117,7 @@ export interface VoiceConfigPublic {
   tts_provider: string;
   tts_voice: string;
   auto_submit: boolean;
+  auto_speak: boolean;
   source: "default" | "db";
 }
 

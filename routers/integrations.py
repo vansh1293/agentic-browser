@@ -97,6 +97,7 @@ class VoiceConfig(BaseModel):
     tts_provider: Optional[str] = "cartesia"
     tts_voice: Optional[str] = "9fb269e7-70fe-4cbe-aa3f-28bdb67e3e84"
     auto_submit: Optional[bool] = False
+    auto_speak: Optional[bool] = False
 
 
 async def _llm_env_status() -> dict[str, bool]:
@@ -131,6 +132,7 @@ def _llm_default_from_env() -> dict[str, Any]:
         "source": "env",
     }
 
+
 async def _llm_effective() -> dict[str, Any]:
     state = AppStateService()
     override = await state.get_setting(LLM_SETTING_KEY)
@@ -153,6 +155,7 @@ async def _voice_effective() -> dict[str, Any]:
         "tts_provider": "cartesia",
         "tts_voice": "9fb269e7-70fe-4cbe-aa3f-28bdb67e3e84",
         "auto_submit": False,
+        "auto_speak": False,
         "source": "default",
     }
     if override:
@@ -166,7 +169,11 @@ async def _voice_effective() -> dict[str, Any]:
 
 async def _voice_secrets() -> list[dict[str, Any]]:
     voice_secret_names = {"openai_api_key", "elevenlabs_api_key", "cartesia_api_key"}
-    return [item for item in await get_secrets_service().list_status() if item["name"] in voice_secret_names]
+    return [
+        item
+        for item in await get_secrets_service().list_status()
+        if item["name"] in voice_secret_names
+    ]
 
 
 async def _composio_status() -> dict[str, Any]:
@@ -231,7 +238,11 @@ async def _llm_secrets() -> list[dict[str, Any]]:
         "openrouter_api_key",
         "ollama_base_url",
     }
-    return [item for item in await get_secrets_service().list_status() if item["name"] in llm_secret_names]
+    return [
+        item
+        for item in await get_secrets_service().list_status()
+        if item["name"] in llm_secret_names
+    ]
 
 
 async def _infra_status() -> dict[str, Any]:
@@ -333,12 +344,16 @@ async def composio_list():
 
 @router.get("/composio/toolkits")
 async def composio_toolkits():
-    return {"toolkits": await list_toolkits_view(),}
+    return {
+        "toolkits": await list_toolkits_view(),
+    }
 
 
 @router.get("/composio/toolkits/{toolkit}/tools")
 async def composio_toolkit_tools(toolkit: str):
-    return {"tools": await list_tools_for_toolkit(toolkit),}
+    return {
+        "tools": await list_tools_for_toolkit(toolkit),
+    }
 
 
 @router.post("/composio/connect/{toolkit}")
@@ -356,7 +371,10 @@ async def composio_connect(toolkit: str):
             },
         )
     except ComposioNotConfigured as exc:
-        raise HTTPException(status_code=400, detail={"code": "composio_not_configured", "message": str(exc)})
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "composio_not_configured", "message": str(exc)},
+        )
     except Exception as exc:
         logger.exception("Composio authorize failed")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -371,7 +389,10 @@ async def composio_disconnect(connected_account_id: str):
             "id": connected_account_id,
         }
     except ComposioNotConfigured as exc:
-        raise HTTPException(status_code=400, detail={"code": "composio_not_configured", "message": str(exc)})
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "composio_not_configured", "message": str(exc)},
+        )
     except Exception as exc:
         logger.exception("Composio connected_accounts.delete failed")
         raise HTTPException(
@@ -393,7 +414,10 @@ async def composio_rename(connected_account_id: str, payload: ComposioRenamePayl
         await rename_connection(connected_account_id, alias)
         return {"status": "ok", "id": connected_account_id, "alias": alias}
     except ComposioNotConfigured as exc:
-        raise HTTPException(status_code=400, detail={"code": "composio_not_configured", "message": str(exc)})
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "composio_not_configured", "message": str(exc)},
+        )
     except Exception as exc:
         logger.exception("Composio connected_accounts.update failed")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -626,6 +650,7 @@ async def pyjiit_set(payload: PyJIITPayload):
     return {
         "status": "ok",
     }
+
 
 @router.delete("/pyjiit")
 async def pyjiit_clear():

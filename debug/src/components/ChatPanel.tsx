@@ -12,6 +12,12 @@ interface AgentLoopEvent {
   timestamp: string;
 }
 
+interface VoiceConfig {
+  tts_provider?: string;
+  tts_voice?: string;
+  auto_speak?: boolean;
+}
+
 export function ChatPanel() {
   const { conversationId } = useParams({ strict: false }) as { conversationId?: string };
   const navigate = useNavigate();
@@ -31,6 +37,11 @@ export function ChatPanel() {
   const [isListening, setIsListening] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  // Voice Output (Speak) State
+  const [currentlyPlayingId, setCurrentlyPlayingId] = useState<string | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null);
 
   // Slash commands
   const [slashSuggestions, setSlashSuggestions] = useState<string[]>([]);
@@ -92,6 +103,108 @@ export function ChatPanel() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [history, streamedResponse, loopEvents]);
+
+  // Load voice config
+  useEffect(() => {
+    api.integrationsStatus().then(res => {
+      if (res.voice) {
+        console.log("Loaded voice config:", res.voice.effective);
+        setVoiceConfig(res.voice.effective);
+      }
+    }).catch(err => console.warn("Failed to load voice config:", err));
+    
+    // Listen for config changes from settings
+    const handleConfigUpdate = (e: CustomEvent) => {
+      console.log("Voice config updated via event:", e.detail);
+      setVoiceConfig(e.detail);
+    };
+    window.addEventListener('voice-config-updated', handleConfigUpdate as EventListener);
+    return () => window.removeEventListener('voice-config-updated', handleConfigUpdate as EventListener);
+  }, []);
+
+  // Keep track of last spoken message to avoid repeats
+  const lastSpokenMsgRef = useRef<string>("");
+
+  // Auto-speak new assistant messages when they arrive - SIMPLE VERSION
+  useEffect(() => {
+    const cfg = voiceConfig;
+    const isAutoSpeak = cfg?.auto_speak === true || cfg?.auto_speak === "true";
+    console.log("Auto-speak check:", { auto_speak: cfg?.auto_speak, isAutoSpeak, msgCount: displayHistory.length });
+    
+    // Must have auto_speak enabled
+    if (!isAutoSpeak) {
+      // Stop if disabled
+      if (currentlyPlayingId) {
+        if (currentAudioRef.current) {
+          currentAudioRef.current.pause();
+          currentAudioRef.current = null;
+        }
+        window.speechSynthesis.cancel();
+        setCurrentlyPlayingId(null);
+      }
+      return;
+    }
+    
+    // Need messages
+    if (!displayHistory.length) return;
+    
+    const lastMsg = displayHistory[displayHistory.length - 1];
+    if (!lastMsg || lastMsg.role !== "assistant") return;
+    
+    // Don't repeat
+    if (lastSpokenMsgRef.current === lastMsg.message_id) return;
+    
+    const content = lastMsg.content?.replace(/<[^>]*>?/gm, "").replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1") || "";
+    if (content.length < 10) return;
+    
+    console.log("Auto-speak triggered for:", content.substring(0, 30));
+    lastSpokenMsgRef.current = lastMsg.message_id;
+    setCurrentlyPlayingId(`loading-${lastMsg.message_id}`);
+    
+    const speakText = content;
+    
+const playNative = () => {
+      setCurrentlyPlayingId(lastMsg.message_id);
+      const ut = new SpeechSynthesisUtterance(speakText);
+      ut.onend = () => setCurrentlyPlayingId(null);
+      if (voiceConfig?.tts_voice) {
+        const voices = window.speechSynthesis.getVoices();
+        const voice = voices.find(v => v.name === voiceConfig.tts_voice || v.lang.startsWith(voiceConfig.tts_voice));
+        if (voice) ut.voice = voice;
+      }
+      window.speechSynthesis.speak(ut);
+    };
+
+    const ttsCfg = voiceConfig;
+    if (!ttsCfg || ttsCfg.tts_provider === "browser_native" || !ttsCfg.tts_provider) {
+      playNative();
+      return;
+    }
+
+    fetch("/api/voice/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: speakText })
+    }).then(async resp => {
+      if (resp.ok) {
+        setCurrentlyPlayingId(lastMsg.message_id);
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        currentAudioRef.current = audio;
+        audio.onended = () => setCurrentlyPlayingId(null);
+        audio.play().catch(e => {
+          console.error("Audio play failed:", e);
+          playNative();
+        });
+      } else {
+        playNative();
+      }
+    }).catch(e => {
+      console.error("Auto-speak fetch failed:", e);
+      playNative();
+    });
+  }, [displayHistory]);
 
   const resizeTextarea = (element?: HTMLTextAreaElement | null) => {
     const textarea = element || textareaRef.current;
@@ -342,10 +455,19 @@ export function ChatPanel() {
 
           const data = await resp.json();
           if (data.ok && data.text) {
-            setInput((prev) => prev + (prev ? " " : "") + data.text);
+            const transcribedText = data.text.trim();
+            setInput((prev) => prev + (prev ? " " : "") + transcribedText);
             if (textareaRef.current) {
               textareaRef.current.focus();
               setTimeout(() => resizeTextarea(), 0);
+            }
+            // Auto-submit if enabled - check for both boolean true and string "true"
+            const isAutoSubmit = voiceConfig?.auto_submit === true || voiceConfig?.auto_submit === "true";
+            if (isAutoSubmit && transcribedText) {
+              console.log("[Auto-submit] auto_submit enabled, submitting:", transcribedText);
+              setTimeout(() => {
+                handleSend(transcribedText);
+              }, 300);
             }
           }
         } catch (err: any) {
@@ -541,6 +663,10 @@ export function ChatPanel() {
               key={msg.message_id}
               message={msg}
               toolCalls={toolCallsByMessage[msg.message_id]}
+              voiceConfig={voiceConfig}
+              currentlyPlayingId={currentlyPlayingId}
+              setCurrentlyPlayingId={setCurrentlyPlayingId}
+              currentAudioRef={currentAudioRef}
             />
           ))}
 
@@ -557,6 +683,10 @@ export function ChatPanel() {
                 content: optimisticMessage,
                 created_at: new Date().toISOString()
               }}
+              voiceConfig={voiceConfig}
+              currentlyPlayingId={currentlyPlayingId}
+              setCurrentlyPlayingId={setCurrentlyPlayingId}
+              currentAudioRef={currentAudioRef}
             />
           )}
 
@@ -570,6 +700,10 @@ export function ChatPanel() {
               }}
               events={loopEvents}
               isStreaming={true}
+              voiceConfig={voiceConfig}
+              currentlyPlayingId={currentlyPlayingId}
+              setCurrentlyPlayingId={setCurrentlyPlayingId}
+              currentAudioRef={currentAudioRef}
             />
           )}
         </div>
@@ -728,7 +862,16 @@ function extractText(content: string): string {
   return content;
 }
 
-function MessageBubble({ message, events, isStreaming, toolCalls }: { message: ChatMessage | any, events?: AgentLoopEvent[], isStreaming?: boolean, toolCalls?: ToolCallRecord[] }) {
+function MessageBubble({ message, events, isStreaming, toolCalls, voiceConfig, currentlyPlayingId, setCurrentlyPlayingId, currentAudioRef }: { 
+  message: ChatMessage | any, 
+  events?: AgentLoopEvent[], 
+  isStreaming?: boolean, 
+  toolCalls?: ToolCallRecord[],
+  voiceConfig: VoiceConfig | null;
+  currentlyPlayingId: string | null;
+  setCurrentlyPlayingId: (id: string | null) => void;
+  currentAudioRef: React.RefObject<HTMLAudioElement | null>;
+}) {
   const isUser = message.role === "user";
   const [expanded, setExpanded] = useState(true);
   const [toolsExpanded, setToolsExpanded] = useState(false);
@@ -952,6 +1095,100 @@ function MessageBubble({ message, events, isStreaming, toolCalls }: { message: C
             </div>
           ) : null}
         </div>
+
+        {/* Speak Button for Assistant Messages */}
+        {!isUser && message.content && voiceConfig && (
+          <button
+            disabled={currentlyPlayingId === `loading-${message.message_id}`}
+            onClick={async () => {
+              if (currentlyPlayingId === message.message_id) {
+                if (currentAudioRef.current) {
+                  currentAudioRef.current.pause();
+                  currentAudioRef.current = null;
+                }
+                window.speechSynthesis.cancel();
+                setCurrentlyPlayingId(null);
+                return;
+              }
+
+              setCurrentlyPlayingId(`loading-${message.message_id}`);
+              const text = message.content.replace(/<[^>]*>?/gm, "").replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1");
+              
+              const playNative = () => {
+                setCurrentlyPlayingId(message.message_id);
+                const ut = new SpeechSynthesisUtterance(text);
+                ut.onend = () => setCurrentlyPlayingId(null);
+                if (voiceConfig?.tts_voice) {
+                  const voices = window.speechSynthesis.getVoices();
+                  const voice = voices.find(v => v.name === voiceConfig.tts_voice || v.lang.startsWith(voiceConfig.tts_voice));
+                  if (voice) ut.voice = voice;
+                }
+                window.speechSynthesis.speak(ut);
+              };
+
+              if (voiceConfig && voiceConfig.tts_provider !== "browser_native") {
+                fetch("/api/voice/speak", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ text })
+                }).then(async resp => {
+                  if (resp.ok) {
+                    setCurrentlyPlayingId(message.message_id);
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const audio = new Audio(url);
+                    currentAudioRef.current = audio;
+                    audio.onended = () => setCurrentlyPlayingId(null);
+                    audio.play().catch(e => {
+                      console.error("Audio play failed:", e);
+                      playNative();
+                    });
+                  } else if (resp.status === 429) {
+                    console.warn("Cartesia limit reached, falling back to browser voice");
+                    playNative();
+                  } else {
+                    playNative();
+                  }
+                }).catch(e => {
+                  console.error(e);
+                  playNative();
+                });
+              } else {
+                playNative();
+              }
+            }}
+            style={{ 
+              marginTop: 8, 
+              padding: "4px 8px", 
+              fontSize: 10, 
+              background: currentlyPlayingId === message.message_id ? "var(--accent-faded)" : "var(--bg-3)", 
+              border: "1px solid var(--border-color)", 
+              borderRadius: 4, 
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              color: currentlyPlayingId === message.message_id ? "var(--accent-color)" : "var(--text-muted)",
+              width: "auto",
+              height: "auto",
+              cursor: "pointer",
+              opacity: currentlyPlayingId === `loading-${message.message_id}` ? 0.7 : 1
+            }}
+          >
+            {currentlyPlayingId === message.message_id ? (
+              <>
+                <X size={10} /> Stop
+              </>
+            ) : currentlyPlayingId === `loading-${message.message_id}` ? (
+              <>
+                <Loader2 size={10} className="spin-icon" /> Thinking...
+              </>
+            ) : (
+              <>
+                <Mic size={10} /> Speak
+              </>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
