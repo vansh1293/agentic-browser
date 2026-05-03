@@ -1155,6 +1155,13 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 
 				try {
 					const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:5454").replace(/\/$/, "");
+					
+					// Fetch FRESH voice config right before using it
+					const freshConfig = await fetch(`${baseUrl}/api/integrations/status`).then(r => r.json());
+					const cfg = freshConfig?.voice?.effective;
+					const isAutoSubmit = cfg?.auto_submit === true || cfg?.auto_submit === "true";
+					console.log("[Transcribe] Fresh config:", { auto_submit: cfg?.auto_submit, isAutoSubmit });
+					
 					const formData = new FormData();
 					formData.append("file", audioBlob, "recording.webm");
 
@@ -1175,10 +1182,9 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 							textareaRef.current.focus();
 							setTimeout(() => resizeTextarea(), 0);
 						}
-						// Auto-submit if enabled - check for both boolean true and string "true"
-						const isAutoSubmit = voiceConfig?.auto_submit === true || voiceConfig?.auto_submit === "true";
+						// Auto-submit if enabled - use FRESH config from API fetch above
 						if (isAutoSubmit && transcribedText) {
-							console.log("[Auto-submit] auto_submit enabled, submitting:", transcribedText);
+							console.log("[Auto-submit] Using fresh config - auto_submit enabled, submitting:", transcribedText);
 							setIsListening(false);
 							setGoal(transcribedText);
 							setTimeout(() => {

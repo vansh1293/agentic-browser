@@ -443,6 +443,12 @@ const playNative = () => {
         }
 
         try {
+          // Fetch FRESH voice config right before using it
+          const freshConfig = await api.integrationsStatus();
+          const cfg = freshConfig?.voice?.effective;
+          const isAutoSubmit = cfg?.auto_submit === true || cfg?.auto_submit === "true";
+          console.log("[Transcribe] Fresh config:", { auto_submit: cfg?.auto_submit, isAutoSubmit });
+          
           const formData = new FormData();
           formData.append("file", audioBlob, "recording.webm");
 
@@ -461,10 +467,10 @@ const playNative = () => {
               textareaRef.current.focus();
               setTimeout(() => resizeTextarea(), 0);
             }
-            // Auto-submit if enabled - check for both boolean true and string "true"
-            const isAutoSubmit = voiceConfig?.auto_submit === true || voiceConfig?.auto_submit === "true";
+            // Auto-submit if enabled - use FRESH config from API fetch above
+            const isAutoSubmit = cfg?.auto_submit === true || cfg?.auto_submit === "true";
             if (isAutoSubmit && transcribedText) {
-              console.log("[Auto-submit] auto_submit enabled, submitting:", transcribedText);
+              console.log("[Auto-submit] Using fresh config - auto_submit enabled, submitting:", transcribedText);
               setTimeout(() => {
                 handleSend(transcribedText);
               }, 300);

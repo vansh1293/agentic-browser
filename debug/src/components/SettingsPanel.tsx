@@ -816,9 +816,16 @@ function VoiceSection({ voice, onChange }: { voice: any; onChange: () => void })
 
   const clearMutation = useMutation({
     mutationFn: api.voiceClear,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["integrations-status"] });
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["integrations-status"] });
+      const fresh = await qc.fetchQuery({ queryKey: ["integrations-status"] });
+      const freshVoice = fresh?.voice?.effective;
+      setLocal(freshVoice);
       onChange();
+      // Emit with fresh data after reset
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('voice-config-updated', { detail: freshVoice }));
+      }, 100);
     },
   });
 
