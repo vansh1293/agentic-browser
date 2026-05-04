@@ -22,10 +22,6 @@ from services.composio_service import (
 from services.app_state import AppStateService
 from services.oauth_credentials_service import get_oauth_credentials_service
 from services.secrets_service import SECRET_REGISTRY, get_secrets_service
-from sqlalchemy import text
-from core.db import engine
-from core.clients.neo4j import get_neo4j
-from core.clients.opensearch import get_opensearch
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -253,6 +249,8 @@ async def _infra_status() -> dict[str, Any]:
     out: dict[str, Any] = {}
     # Postgres
     try:
+        from sqlalchemy import text
+        from core.db import engine
         async with engine.connect() as c:
             await c.execute(text("SELECT 1"))
         out["postgres"] = {"ok": True}
@@ -263,6 +261,7 @@ async def _infra_status() -> dict[str, Any]:
         }
     # Neo4j
     try:
+        from core.clients.neo4j import get_neo4j
         n = get_neo4j()
         out["neo4j"] = {
             "ok": bool(getattr(n, "_driver", None)),
@@ -274,6 +273,7 @@ async def _infra_status() -> dict[str, Any]:
         }
     # OpenSearch
     try:
+        from core.clients.opensearch import get_opensearch
         c = get_opensearch()
         out["opensearch"] = {
             "ok": bool(getattr(c, "_client", None)),

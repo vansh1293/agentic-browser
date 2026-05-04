@@ -9,9 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.streamable_http import StreamableHTTPServerTransport
 
 from core.config import get_logger
-from core.clients.neo4j import get_neo4j
-from core.clients.opensearch import get_opensearch
-from core.db import init_db
 from mcp_server.server import server as mcp_server
 
 logger = get_logger(__name__)
@@ -42,6 +39,9 @@ class MCPStreamableHTTPApp:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Connect memory stores on startup, disconnect on shutdown."""
+    from core.clients.neo4j import get_neo4j
+    from core.clients.opensearch import get_opensearch
+    from core.db import init_db
 
     logger.info("Initialising memory stores...")
     try:
