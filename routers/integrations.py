@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from core import get_logger
 from core.config import get_settings
+from core.llm import PROVIDER_CONFIGS
 from services.composio_service import (
     CURATED_TOOLKITS,
     ComposioNeedsAuthConfigError,
@@ -21,6 +22,10 @@ from services.composio_service import (
 from services.app_state import AppStateService
 from services.oauth_credentials_service import get_oauth_credentials_service
 from services.secrets_service import SECRET_REGISTRY, get_secrets_service
+from sqlalchemy import text
+from core.db import engine
+from core.clients.neo4j import get_neo4j
+from core.clients.opensearch import get_opensearch
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -119,7 +124,6 @@ async def _llm_env_status() -> dict[str, bool]:
 def _llm_default_from_env() -> dict[str, Any]:
     """Resolve provider/model/temperature from settings; fall back to the
     provider's default_model when the user didn't pin one in env."""
-    from core.llm import PROVIDER_CONFIGS
 
     s = get_settings()
     provider = (s.default_llm_provider or "google").lower()
@@ -249,10 +253,6 @@ async def _infra_status() -> dict[str, Any]:
     out: dict[str, Any] = {}
     # Postgres
     try:
-        from sqlalchemy import text
-
-        from core.db import engine
-
         async with engine.connect() as c:
             await c.execute(text("SELECT 1"))
         out["postgres"] = {"ok": True}
@@ -263,8 +263,6 @@ async def _infra_status() -> dict[str, Any]:
         }
     # Neo4j
     try:
-        from core.clients.neo4j import get_neo4j
-
         n = get_neo4j()
         out["neo4j"] = {
             "ok": bool(getattr(n, "_driver", None)),
@@ -276,8 +274,6 @@ async def _infra_status() -> dict[str, Any]:
         }
     # OpenSearch
     try:
-        from core.clients.opensearch import get_opensearch
-
         c = get_opensearch()
         out["opensearch"] = {
             "ok": bool(getattr(c, "_client", None)),
@@ -307,6 +303,7 @@ async def status():
             "effective": await _voice_effective(),
             "secrets": await _voice_secrets(),
         },
+        "telegram": await sec.telegram_public(),
         "native_tools": NATIVE_TOOLS,
         "agents": REGISTERED_AGENTS,
         "infra": await _infra_status(),

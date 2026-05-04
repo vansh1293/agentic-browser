@@ -3,13 +3,9 @@ import sys
 from typing import Optional
 
 from langchain_tavily import TavilySearch
-from core.config import get_logger
+from core import get_logger
 
 logger = get_logger(__name__)
-
-# Initialize TavilySearch - max_results will be overridden in invoke
-tavily_tool = TavilySearch(topic="general")
-
 
 def web_search_pipeline(
     query: str,
@@ -20,12 +16,12 @@ def web_search_pipeline(
     Run the web search using Tavily.
     Returns a list of dictionaries with url and md_body_content (mapped from Tavily's content).
     """
+    tavily_tool = TavilySearch(topic="general")
+    tavily_tool.max_results = max_results
+
     logger.info("Starting Tavily search for query: %s", query)
 
     try:
-        # Update max_results for this specific call
-        tavily_tool.max_results = max_results
-
         # Invoke Tavily Search
         response = tavily_tool.invoke({"query": query})
 

@@ -54,6 +54,8 @@ dependencies = [
     "markitdown>=0.1.5",
     "pillow>=12.2.0",
     "groq>=1.2.0",
+    # ── Telegram bot ───────────────────────────────────────────────────────────
+    "python-telegram-bot[job-queue]>=21.0",
 ]
 
 [project.scripts]

@@ -41,6 +41,39 @@ Unlike typical AI assistants, this agent:
 
 ---
 
+## Monorepo Layout
+
+```text
+clients/
+  browser-extension/   # WXT browser extension client
+  debug-web/           # Vite debug dashboard client
+  telegram-bot/        # Future Python Telegram client
+
+agents/
+core/
+mcp_server/
+models/
+routers/
+services/
+main.py                # Root Python backend entrypoint
+pyproject.toml         # Root Python package metadata
+pnpm-workspace.yaml    # Frontend workspace definition
+```
+
+## Workspace Commands
+
+```bash
+pnpm install
+pnpm dev:debug
+pnpm dev:extension
+pnpm build:debug
+pnpm build:extension
+```
+
+The Python backend stays at the repository root and is still managed through `pyproject.toml` and `uv.lock`.
+
+---
+
 ## Slash Commands & Tools
 
 | Command | Capability |

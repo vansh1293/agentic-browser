@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 import anyio
+import asyncio
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -8,6 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.streamable_http import StreamableHTTPServerTransport
 
 from core.config import get_logger
+from core.clients.neo4j import get_neo4j
+from core.clients.opensearch import get_opensearch
+from core.db import init_db
 from mcp_server.server import server as mcp_server
 
 logger = get_logger(__name__)
@@ -38,9 +42,6 @@ class MCPStreamableHTTPApp:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Connect memory stores on startup, disconnect on shutdown."""
-    from core.clients.neo4j import get_neo4j
-    from core.clients.opensearch import get_opensearch
-    from core.db import init_db
 
     logger.info("Initialising memory stores...")
     try:
@@ -76,6 +77,15 @@ async def lifespan(app: FastAPI):
 
     except Exception as exc:
         logger.warning("LLM default resolution skipped: %s", exc)
+
+    try:
+        from services.telegram_bot_runner import run_telegram_bot
+
+        bot_task = asyncio.create_task(run_telegram_bot())
+        app.state.bot_task = bot_task
+        logger.info("Telegram bot task created.")
+    except Exception as exc:
+        logger.warning("Telegram bot init skipped: %s", exc)
 
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -114,6 +124,11 @@ async def lifespan(app: FastAPI):
 
     if hasattr(app.state, "scheduler"):
         app.state.scheduler.shutdown(wait=False)
+
+    if hasattr(app.state, "bot_task"):
+        app.state.bot_task.cancel()
+        await asyncio.gather(app.state.bot_task, return_exceptions=True)
+
     try:
         neo4j = get_neo4j()
         await neo4j.close()
