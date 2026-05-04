@@ -544,14 +544,24 @@ class ReactAgentService:
                         }
                     )
                     try:
-                        answer = await self._run_react_agent_answer(
-                            question=question,
-                            chat_history=server_history or chat_history,
+                        from agents.react_agent import astream_react_agent
+                        
+                        full_answer_parts = []
+                        async for agent_event in astream_react_agent(
+                            messages=messages,
                             context=context,
-                            client_html=client_html,
-                            memory_prompt=str(context.get("memory_prompt") or ""),
-                            emit=emit_and_record,
-                        )
+                            subagent_name="react",
+                        ):
+                            # Record and emit individual events
+                            await emit_and_record(agent_event)
+                            await emit(agent_event)
+                            
+                            # Collect answer parts for persistent storage
+                            if agent_event["event"] == "answer_delta":
+                                full_answer_parts.append(agent_event["delta"])
+                        
+                        answer = "".join(full_answer_parts)
+
                     except Exception as exc:
                         await emit_and_record(
                             {
@@ -562,15 +572,7 @@ class ReactAgentService:
                             }
                         )
                         raise
-                    await emit_and_record(
-                        {
-                            "event": "subagent_completed",
-                            "iteration": 1,
-                            "subagent": "react",
-                            "result": answer,
-                        }
-                    )
-                    await emit({"event": "answer_delta", "delta": answer})
+                    
                     await emit(
                         {
                             "event": "final",

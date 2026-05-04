@@ -231,3 +231,38 @@ async def run_react_agent(
     result = await graph.ainvoke({"messages": lc_messages})
     final_messages = result.get("messages", [])
     return [_langchain_to_payload(msg) for msg in final_messages]
+
+
+async def astream_react_agent(
+    messages: Sequence[AgentMessagePayload],
+    context: dict[str, Any] | None = None,
+    subagent_name: str = "react",
+) -> AsyncGenerator[dict[str, Any], None]:
+    graph = GraphBuilder(context=context)() if context else _compiled_graph()
+    lc_messages = [_payload_to_langchain(msg) for msg in messages]
+    if not lc_messages or not isinstance(lc_messages[0], SystemMessage):
+        lc_messages = [_system_message] + lc_messages
+    else:
+        lc_messages = [_system_message, *lc_messages]
+
+    # Use astream_events to get granular progress
+    async for event in graph.astream_events({"messages": lc_messages}, version="v2"):
+        kind = event["event"]
+        if kind == "on_chat_model_stream":
+            content = event["data"]["chunk"].content
+            if content:
+                yield {"event": "answer_delta", "delta": content}
+        elif kind == "on_tool_start":
+            yield {
+                "event": "subagent_tool_call",
+                "subagent": subagent_name,
+                "tool": event["name"],
+                "args": event["data"].get("input"),
+            }
+        elif kind == "on_tool_end":
+            yield {
+                "event": "subagent_tool_result",
+                "subagent": subagent_name,
+                "tool": event["name"],
+                "result": event["data"].get("output"),
+            }

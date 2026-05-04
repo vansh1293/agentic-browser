@@ -156,6 +156,12 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 	const [voiceConfig, setVoiceConfig] = useState<any>(null);
 	const eventCounterRef = useRef(0);
 
+	// Refs for Zero-Latency Streaming TTS
+	const lastProcessedCharIndexRef = useRef<number>(0);
+	const sentenceQueueRef = useRef<string[]>([]);
+	const isPlayingQueueRef = useRef<boolean>(false);
+	const lastSpokenMsgRef = useRef<string>("");
+
 
 	// File Attachment State
 	const [attachedFile, setAttachedFile] = useState<{ name: string; path: string; size: number } | null>(null);
@@ -292,75 +298,60 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 	const activeSession = sessions.find((s) => s.id === activeSessionId);
 	const activeMessages = activeSession?.messages || [];
 	
-	// Keep track of last spoken message to avoid repeats
-	const lastSpokenMsgRef = useRef<string>("");
+	// Note: lastSpokenMsgRef is now moved to the top with other refs
 
-	// Auto-speak new assistant messages - SIMPLE VERSION
-	useEffect(() => {
-		const cfg = voiceConfig;
-		const isAutoSpeak = cfg?.auto_speak === true || cfg?.auto_speak === "true";
-		console.log("Auto-speak check:", { auto_speak: cfg?.auto_speak, isAutoSpeak, msgCount: activeMessages.length });
+	// Process Sentence Queue for Streaming TTS
+	const processSentenceQueue = async (msgId: string) => {
+		if (isPlayingQueueRef.current || sentenceQueueRef.current.length === 0) return;
 		
-		// Must have auto_speak enabled
-		if (!isAutoSpeak) {
-			if (currentlyPlayingId) {
-				if (currentAudioRef.current) {
-					currentAudioRef.current.pause();
-					currentAudioRef.current = null;
-				}
-				window.speechSynthesis.cancel();
-				setCurrentlyPlayingId(null);
+		isPlayingQueueRef.current = true;
+		const sentence = sentenceQueueRef.current.shift()!;
+		
+		const cleanup = () => {
+			isPlayingQueueRef.current = false;
+			setCurrentlyPlayingId(null);
+			if (sentenceQueueRef.current.length > 0) {
+				processSentenceQueue(msgId);
 			}
-			return;
-		}
-		
-		if (!activeMessages.length) return;
-		
-		const lastMsg = activeMessages[activeMessages.length - 1];
-		if (!lastMsg || lastMsg.role !== "assistant") return;
-		if (lastSpokenMsgRef.current === lastMsg.id) return;
-		
-		const content = lastMsg.content?.replace(/<[^>]*>?/gm, "").replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1") || "";
-		if (content.length < 10) return;
-		
-		console.log("Auto-speak triggered for:", content.substring(0, 30));
-		lastSpokenMsgRef.current = lastMsg.id;
-		setCurrentlyPlayingId(`loading-${lastMsg.id}`);
-		
-		const speakText = content;
-		
+		};
+
 		const playNative = () => {
-			setCurrentlyPlayingId(lastMsg.id);
-			const ut = new SpeechSynthesisUtterance(speakText);
-			ut.onend = () => setCurrentlyPlayingId(null);
-			if (voiceConfigRef.current?.tts_voice) {
+			setCurrentlyPlayingId(msgId);
+			const ut = new SpeechSynthesisUtterance(sentence);
+			ut.onend = cleanup;
+			ut.onerror = cleanup;
+			
+			if (voiceConfig?.tts_voice) {
 				const voices = window.speechSynthesis.getVoices();
-				const voice = voices.find(v => v.name === voiceConfigRef.current?.tts_voice || v.lang.startsWith(voiceConfigRef.current?.tts_voice));
+				const voice = voices.find(v => v.name === voiceConfig.tts_voice || v.lang.startsWith(voiceConfig.tts_voice));
 				if (voice) ut.voice = voice;
 			}
 			window.speechSynthesis.speak(ut);
 		};
 
 		const ttsCfg = voiceConfig;
-		if (!ttsCfg || ttsCfg.tts_provider === "browser_native" || ttsCfg.tts_provider === undefined) {
+		if (!ttsCfg || ttsCfg.tts_provider === "browser_native" || !ttsCfg.tts_provider) {
 			playNative();
 			return;
 		}
 
-		// Fetch and play immediately from Cartesia/OpenAI
-		const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:5454").replace(/\/$/, "");
-		fetch(`${baseUrl}/api/voice/speak`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ text: speakText })
-		}).then(async resp => {
+		try {
+			setCurrentlyPlayingId(`loading-${msgId}`);
+			const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:5454").replace(/\/$/, "");
+			const resp = await fetch(`${baseUrl}/api/voice/speak`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ text: sentence })
+			});
+
 			if (resp.ok) {
-				setCurrentlyPlayingId(lastMsg.id);
+				setCurrentlyPlayingId(msgId);
 				const blob = await resp.blob();
 				const url = URL.createObjectURL(blob);
 				const audio = new Audio(url);
 				currentAudioRef.current = audio;
-				audio.onended = () => setCurrentlyPlayingId(null);
+				audio.onended = cleanup;
+				audio.onerror = cleanup;
 				audio.play().catch(e => {
 					console.error("Audio play failed:", e);
 					playNative();
@@ -368,11 +359,85 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 			} else {
 				playNative();
 			}
-		}).catch(e => {
-			console.error("Auto-speak fetch failed:", e);
+		} catch (e) {
+			console.error("TTS fetch failed:", e);
 			playNative();
-		});
-	}, [activeMessages]);
+		}
+	};
+
+	// Auto-speak new assistant messages - STREAMING VERSION
+	useEffect(() => {
+		const cfg = voiceConfig;
+		const isAutoSpeak = cfg?.auto_speak === true || cfg?.auto_speak === "true";
+		
+		if (!isAutoSpeak) {
+			if (currentAudioRef.current) {
+				currentAudioRef.current.pause();
+				currentAudioRef.current = null;
+			}
+			window.speechSynthesis.cancel();
+			setCurrentlyPlayingId(null);
+			sentenceQueueRef.current = [];
+			isPlayingQueueRef.current = false;
+			return;
+		}
+		
+		if (!activeMessages.length) return;
+		
+		const lastMsg = activeMessages[activeMessages.length - 1];
+		if (!lastMsg || lastMsg.role !== "assistant") return;
+		
+		// 1. Handle New Message Start
+		if (lastSpokenMsgRef.current !== lastMsg.id) {
+			lastSpokenMsgRef.current = lastMsg.id;
+			lastProcessedCharIndexRef.current = 0;
+			
+			// Stop previous audio
+			if (currentAudioRef.current) {
+				currentAudioRef.current.pause();
+				currentAudioRef.current = null;
+			}
+			window.speechSynthesis.cancel();
+			sentenceQueueRef.current = [];
+			isPlayingQueueRef.current = false;
+		}
+		
+		// 2. Extract sentences from the stream
+		const content = lastMsg.content?.replace(/<[^>]*>?/gm, "").replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1") || "";
+		const newContent = content.substring(lastProcessedCharIndexRef.current);
+		
+		// Regex for sentence boundaries: . ! ? followed by whitespace or end of string, OR newlines
+		const sentenceRegex = /[^.!?\n]+[.!?\n]+(?=\s|$)/g;
+		let match;
+		let lastMatchEnd = 0;
+		
+		while ((match = sentenceRegex.exec(newContent)) !== null) {
+			const sentence = match[0].trim();
+			if (sentence.length > 1) {
+				sentenceQueueRef.current.push(sentence);
+			}
+			lastMatchEnd = match.index + match[0].length;
+		}
+		
+		if (lastMatchEnd > 0) {
+			lastProcessedCharIndexRef.current += lastMatchEnd;
+		}
+		
+		// 3. Handle message completion (flush the remaining text)
+		const isFinal = lastMsg.events?.some(e => e.type === 'final');
+		if (isFinal && lastProcessedCharIndexRef.current < content.length) {
+			const remaining = content.substring(lastProcessedCharIndexRef.current).trim();
+			if (remaining.length > 0) {
+				sentenceQueueRef.current.push(remaining);
+				lastProcessedCharIndexRef.current = content.length;
+			}
+		}
+		
+		// 4. Trigger queue processing
+		if (!isPlayingQueueRef.current && sentenceQueueRef.current.length > 0) {
+			processSentenceQueue(lastMsg.id);
+		}
+	}, [activeMessages, voiceConfig]);
 
 	const renderAgentEvents = (events: AgentLoopEvent[], keyId: string) => {
 		if (!events.length) return null;

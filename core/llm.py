@@ -1,5 +1,5 @@
 import os
-from typing import Any, Literal
+from typing import Any, AsyncGenerator, Literal, Sequence
 
 from .config import get_settings
 
@@ -174,6 +174,15 @@ class LargeLanguageModel:
             raise RuntimeError(
                 f"Error generating text with {self.provider} ({self.model_name}): {e}"
             )
+
+    async def stream_text(
+        self,
+        messages: Sequence[BaseMessage],
+    ) -> AsyncGenerator[str, None]:
+        """Stream response text from the LLM."""
+        async for chunk in self.client.astream(messages):
+            if chunk.content:
+                yield chunk.content if isinstance(chunk.content, str) else str(chunk.content)
 
     def summarize_text(self, text: str) -> str:
         return f"Summary of the text: {text[:50]}..."
