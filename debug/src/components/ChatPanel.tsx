@@ -112,7 +112,7 @@ export function ChatPanel() {
         setVoiceConfig(res.voice.effective);
       }
     }).catch(err => console.warn("Failed to load voice config:", err));
-    
+
     // Listen for config changes from settings
     const handleConfigUpdate = (e: CustomEvent) => {
       console.log("Voice config updated via event:", e.detail);
@@ -130,7 +130,7 @@ export function ChatPanel() {
     const cfg = voiceConfig;
     const isAutoSpeak = cfg?.auto_speak === true || cfg?.auto_speak === "true";
     console.log("Auto-speak check:", { auto_speak: cfg?.auto_speak, isAutoSpeak, msgCount: displayHistory.length });
-    
+
     // Must have auto_speak enabled
     if (!isAutoSpeak) {
       // Stop if disabled
@@ -144,26 +144,26 @@ export function ChatPanel() {
       }
       return;
     }
-    
+
     // Need messages
     if (!displayHistory.length) return;
-    
+
     const lastMsg = displayHistory[displayHistory.length - 1];
     if (!lastMsg || lastMsg.role !== "assistant") return;
-    
+
     // Don't repeat
     if (lastSpokenMsgRef.current === lastMsg.message_id) return;
-    
+
     const content = lastMsg.content?.replace(/<[^>]*>?/gm, "").replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1") || "";
     if (content.length < 10) return;
-    
+
     console.log("Auto-speak triggered for:", content.substring(0, 30));
     lastSpokenMsgRef.current = lastMsg.message_id;
     setCurrentlyPlayingId(`loading-${lastMsg.message_id}`);
-    
+
     const speakText = content;
-    
-const playNative = () => {
+
+    const playNative = () => {
       setCurrentlyPlayingId(lastMsg.message_id);
       const ut = new SpeechSynthesisUtterance(speakText);
       ut.onend = () => setCurrentlyPlayingId(null);
@@ -443,19 +443,22 @@ const playNative = () => {
         }
 
         try {
-          // Fetch FRESH voice config right before using it
-          const freshConfig = await api.integrationsStatus();
-          const cfg = freshConfig?.voice?.effective;
-          const isAutoSubmit = cfg?.auto_submit === true || cfg?.auto_submit === "true";
-          console.log("[Transcribe] Fresh config:", { auto_submit: cfg?.auto_submit, isAutoSubmit });
-          
+          // Parallelize config fetching and transcription upload
+          const configPromise = api.integrationsStatus();
+
           const formData = new FormData();
           formData.append("file", audioBlob, "recording.webm");
 
-          const resp = await fetch(`/api/voice/transcribe`, {
+          const transcribePromise = fetch(`/api/voice/transcribe`, {
             method: "POST",
             body: formData,
           });
+
+          const [freshConfig, resp] = await Promise.all([configPromise, transcribePromise]);
+
+          const cfg = freshConfig?.voice?.effective;
+          const isAutoSubmit = cfg?.auto_submit === true || cfg?.auto_submit === "true";
+          console.log("[Transcribe] Config & Transcribe finished in parallel:", { auto_submit: cfg?.auto_submit, isAutoSubmit });
 
           if (!resp.ok) throw new Error(`Transcription failed: ${await resp.text()}`);
 
@@ -467,10 +470,9 @@ const playNative = () => {
               textareaRef.current.focus();
               setTimeout(() => resizeTextarea(), 0);
             }
-            // Auto-submit if enabled - use FRESH config from API fetch above
-            const isAutoSubmit = cfg?.auto_submit === true || cfg?.auto_submit === "true";
+            // Auto-submit if enabled
             if (isAutoSubmit && transcribedText) {
-              console.log("[Auto-submit] Using fresh config - auto_submit enabled, submitting:", transcribedText);
+              console.log("[Auto-submit] Submitting immediately:", transcribedText);
               setTimeout(() => {
                 handleSend(transcribedText);
               }, 300);
@@ -682,19 +684,19 @@ const playNative = () => {
             displayHistory[displayHistory.length - 1].role === "user" &&
             displayHistory[displayHistory.length - 1].content?.trim() === optimisticMessage.trim()
           ) && (
-            <MessageBubble
-              message={{
-                message_id: "optimistic-user",
-                role: "user",
-                content: optimisticMessage,
-                created_at: new Date().toISOString()
-              }}
-              voiceConfig={voiceConfig}
-              currentlyPlayingId={currentlyPlayingId}
-              setCurrentlyPlayingId={setCurrentlyPlayingId}
-              currentAudioRef={currentAudioRef}
-            />
-          )}
+              <MessageBubble
+                message={{
+                  message_id: "optimistic-user",
+                  role: "user",
+                  content: optimisticMessage,
+                  created_at: new Date().toISOString()
+                }}
+                voiceConfig={voiceConfig}
+                currentlyPlayingId={currentlyPlayingId}
+                setCurrentlyPlayingId={setCurrentlyPlayingId}
+                currentAudioRef={currentAudioRef}
+              />
+            )}
 
           {isStreaming && (
             <MessageBubble
@@ -868,10 +870,10 @@ function extractText(content: string): string {
   return content;
 }
 
-function MessageBubble({ message, events, isStreaming, toolCalls, voiceConfig, currentlyPlayingId, setCurrentlyPlayingId, currentAudioRef }: { 
-  message: ChatMessage | any, 
-  events?: AgentLoopEvent[], 
-  isStreaming?: boolean, 
+function MessageBubble({ message, events, isStreaming, toolCalls, voiceConfig, currentlyPlayingId, setCurrentlyPlayingId, currentAudioRef }: {
+  message: ChatMessage | any,
+  events?: AgentLoopEvent[],
+  isStreaming?: boolean,
   toolCalls?: ToolCallRecord[],
   voiceConfig: VoiceConfig | null;
   currentlyPlayingId: string | null;
@@ -1119,7 +1121,7 @@ function MessageBubble({ message, events, isStreaming, toolCalls, voiceConfig, c
 
               setCurrentlyPlayingId(`loading-${message.message_id}`);
               const text = message.content.replace(/<[^>]*>?/gm, "").replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1");
-              
+
               const playNative = () => {
                 setCurrentlyPlayingId(message.message_id);
                 const ut = new SpeechSynthesisUtterance(text);
@@ -1163,13 +1165,13 @@ function MessageBubble({ message, events, isStreaming, toolCalls, voiceConfig, c
                 playNative();
               }
             }}
-            style={{ 
-              marginTop: 8, 
-              padding: "4px 8px", 
-              fontSize: 10, 
-              background: currentlyPlayingId === message.message_id ? "var(--accent-faded)" : "var(--bg-3)", 
-              border: "1px solid var(--border-color)", 
-              borderRadius: 4, 
+            style={{
+              marginTop: 8,
+              padding: "4px 8px",
+              fontSize: 10,
+              background: currentlyPlayingId === message.message_id ? "var(--accent-faded)" : "var(--bg-3)",
+              border: "1px solid var(--border-color)",
+              borderRadius: 4,
               display: "flex",
               alignItems: "center",
               gap: 4,

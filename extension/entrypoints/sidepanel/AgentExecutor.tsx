@@ -1156,19 +1156,22 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 				try {
 					const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:5454").replace(/\/$/, "");
 					
-					// Fetch FRESH voice config right before using it
-					const freshConfig = await fetch(`${baseUrl}/api/integrations/status`).then(r => r.json());
-					const cfg = freshConfig?.voice?.effective;
-					const isAutoSubmit = cfg?.auto_submit === true || cfg?.auto_submit === "true";
-					console.log("[Transcribe] Fresh config:", { auto_submit: cfg?.auto_submit, isAutoSubmit });
+					// Parallelize config fetching and transcription upload
+					const configPromise = fetch(`${baseUrl}/api/integrations/status`).then(r => r.json());
 					
 					const formData = new FormData();
 					formData.append("file", audioBlob, "recording.webm");
 
-					const resp = await fetch(`${baseUrl}/api/voice/transcribe`, {
+					const transcribePromise = fetch(`${baseUrl}/api/voice/transcribe`, {
 						method: "POST",
 						body: formData,
 					});
+
+					const [freshConfig, resp] = await Promise.all([configPromise, transcribePromise]);
+					
+					const cfg = freshConfig?.voice?.effective;
+					const isAutoSubmit = cfg?.auto_submit === true || cfg?.auto_submit === "true";
+					console.log("[Transcribe] Config & Transcribe finished in parallel:", { auto_submit: cfg?.auto_submit, isAutoSubmit });
 
 					if (!resp.ok) {
 						throw new Error(`Transcription failed: ${await resp.text()}`);
@@ -1184,7 +1187,7 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 						}
 						// Auto-submit if enabled - use FRESH config from API fetch above
 						if (isAutoSubmit && transcribedText) {
-							console.log("[Auto-submit] Using fresh config - auto_submit enabled, submitting:", transcribedText);
+							console.log("[Auto-submit] Submitting immediately:", transcribedText);
 							setIsListening(false);
 							setGoal(transcribedText);
 							setTimeout(() => {

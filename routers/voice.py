@@ -119,14 +119,30 @@ async def transcribe_voice(file: UploadFile = File(...)):
             prob = 1.0
         elif stt_provider == "groq":
             sec = get_secrets_service()
-            api_key = await sec.resolve(
-                "openai_api_key"
-            )  # Groq uses its own key usually, but let's assume we might use a groq_api_key later
-            # For now, let's check for groq_api_key in secrets if it existed, but I haven't added it yet.
-            # I'll use openai_api_key as a placeholder or tell the user to add it.
-            raise HTTPException(
-                status_code=501, detail="Groq STT implementation pending"
-            )
+            api_key = await sec.resolve("groq_api_key")
+            if not api_key:
+                raise HTTPException(
+                    status_code=400, detail="Groq API key not configured"
+                )
+
+            from groq import Groq
+
+            client = Groq(api_key=api_key)
+            # Map local model names to Groq equivalents if needed
+            model = stt_model
+            if not model or model in ["tiny", "base", "small", "medium", "large", "whisper-1"]:
+                model = "whisper-large-v3"
+
+            with open(temp_file_path, "rb") as audio_file:
+                response = client.audio.transcriptions.create(
+                    file=(str(temp_file_path), audio_file.read()),
+                    model=model,
+                    response_format="json",
+                    language="en",  # Always English as requested
+                )
+            full_transcript = response.text
+            detected_lang = "en"
+            prob = 1.0
         else:
             raise HTTPException(
                 status_code=400, detail=f"Unsupported STT provider: {stt_provider}"

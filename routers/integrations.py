@@ -168,7 +168,7 @@ async def _voice_effective() -> dict[str, Any]:
 
 
 async def _voice_secrets() -> list[dict[str, Any]]:
-    voice_secret_names = {"openai_api_key", "elevenlabs_api_key", "cartesia_api_key"}
+    voice_secret_names = {"openai_api_key", "elevenlabs_api_key", "cartesia_api_key", "groq_api_key"}
     return [
         item
         for item in await get_secrets_service().list_status()
