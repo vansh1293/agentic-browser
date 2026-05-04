@@ -156,6 +156,12 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 	const [voiceConfig, setVoiceConfig] = useState<any>(null);
 	const eventCounterRef = useRef(0);
 
+	// Refs for Zero-Latency Streaming TTS
+	const lastProcessedCharIndexRef = useRef<number>(0);
+	const sentenceQueueRef = useRef<string[]>([]);
+	const isPlayingQueueRef = useRef<boolean>(false);
+	const lastSpokenMsgRef = useRef<string>("");
+
 
 	// File Attachment State
 	const [attachedFile, setAttachedFile] = useState<{ name: string; path: string; size: number } | null>(null);
@@ -261,8 +267,19 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 
 		// Load voice config
 		api.integrationsStatus().then(res => {
-			if (res.voice) setVoiceConfig(res.voice.effective);
+			if (res.voice) {
+				console.log("Loaded voice config:", res.voice.effective);
+				setVoiceConfig(res.voice.effective);
+			}
 		}).catch(err => console.warn("Failed to load voice config:", err));
+		
+		// Listen for config changes from other components
+		const handleConfigUpdate = (e: CustomEvent) => {
+			console.log("Voice config updated via event:", e.detail);
+			setVoiceConfig(e.detail);
+		};
+		window.addEventListener('voice-config-updated', handleConfigUpdate as EventListener);
+		return () => window.removeEventListener('voice-config-updated', handleConfigUpdate as EventListener);
 	}, []);
 
 	// Save sessions to Postgres whenever they change; keep local cache for offline fallback.
@@ -280,6 +297,148 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 	// Auto-scroll to bottom when active session messages update
 	const activeSession = sessions.find((s) => s.id === activeSessionId);
 	const activeMessages = activeSession?.messages || [];
+	
+	// Note: lastSpokenMsgRef is now moved to the top with other refs
+
+	// Process Sentence Queue for Streaming TTS
+	const processSentenceQueue = async (msgId: string) => {
+		if (isPlayingQueueRef.current || sentenceQueueRef.current.length === 0) return;
+		
+		isPlayingQueueRef.current = true;
+		const sentence = sentenceQueueRef.current.shift()!;
+		
+		const cleanup = () => {
+			isPlayingQueueRef.current = false;
+			setCurrentlyPlayingId(null);
+			if (sentenceQueueRef.current.length > 0) {
+				processSentenceQueue(msgId);
+			}
+		};
+
+		const playNative = () => {
+			setCurrentlyPlayingId(msgId);
+			const ut = new SpeechSynthesisUtterance(sentence);
+			ut.onend = cleanup;
+			ut.onerror = cleanup;
+			
+			if (voiceConfig?.tts_voice) {
+				const voices = window.speechSynthesis.getVoices();
+				const voice = voices.find(v => v.name === voiceConfig.tts_voice || v.lang.startsWith(voiceConfig.tts_voice));
+				if (voice) ut.voice = voice;
+			}
+			window.speechSynthesis.speak(ut);
+		};
+
+		const ttsCfg = voiceConfig;
+		if (!ttsCfg || ttsCfg.tts_provider === "browser_native" || !ttsCfg.tts_provider) {
+			playNative();
+			return;
+		}
+
+		try {
+			setCurrentlyPlayingId(`loading-${msgId}`);
+			const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:5454").replace(/\/$/, "");
+			const resp = await fetch(`${baseUrl}/api/voice/speak`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ text: sentence })
+			});
+
+			if (resp.ok) {
+				setCurrentlyPlayingId(msgId);
+				const blob = await resp.blob();
+				const url = URL.createObjectURL(blob);
+				const audio = new Audio(url);
+				currentAudioRef.current = audio;
+				audio.onended = cleanup;
+				audio.onerror = cleanup;
+				audio.play().catch(e => {
+					console.error("Audio play failed:", e);
+					playNative();
+				});
+			} else {
+				playNative();
+			}
+		} catch (e) {
+			console.error("TTS fetch failed:", e);
+			playNative();
+		}
+	};
+
+	// Auto-speak new assistant messages - STREAMING VERSION
+	useEffect(() => {
+		const cfg = voiceConfig;
+		const isAutoSpeak = cfg?.auto_speak === true || cfg?.auto_speak === "true";
+		
+		if (!isAutoSpeak) {
+			if (currentAudioRef.current) {
+				currentAudioRef.current.pause();
+				currentAudioRef.current = null;
+			}
+			window.speechSynthesis.cancel();
+			setCurrentlyPlayingId(null);
+			sentenceQueueRef.current = [];
+			isPlayingQueueRef.current = false;
+			return;
+		}
+		
+		if (!activeMessages.length) return;
+		
+		const lastMsg = activeMessages[activeMessages.length - 1];
+		if (!lastMsg || lastMsg.role !== "assistant") return;
+		
+		// 1. Handle New Message Start
+		if (lastSpokenMsgRef.current !== lastMsg.id) {
+			lastSpokenMsgRef.current = lastMsg.id;
+			lastProcessedCharIndexRef.current = 0;
+			
+			// Stop previous audio
+			if (currentAudioRef.current) {
+				currentAudioRef.current.pause();
+				currentAudioRef.current = null;
+			}
+			window.speechSynthesis.cancel();
+			sentenceQueueRef.current = [];
+			isPlayingQueueRef.current = false;
+		}
+		
+		// 2. Extract sentences from the stream
+		const content = lastMsg.content?.replace(/<[^>]*>?/gm, "").replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1") || "";
+		const newContent = content.substring(lastProcessedCharIndexRef.current);
+		
+		// Regex for sentence boundaries: . ! ? followed by whitespace or end of string, OR newlines
+		const sentenceRegex = /[^.!?\n]+[.!?\n]+(?=\s|$)/g;
+		let match;
+		let lastMatchEnd = 0;
+		
+		while ((match = sentenceRegex.exec(newContent)) !== null) {
+			const sentence = match[0].trim();
+			if (sentence.length > 1) {
+				sentenceQueueRef.current.push(sentence);
+			}
+			lastMatchEnd = match.index + match[0].length;
+		}
+		
+		if (lastMatchEnd > 0) {
+			lastProcessedCharIndexRef.current += lastMatchEnd;
+		}
+		
+		// 3. Handle message completion (flush the remaining text)
+		const isFinal = lastMsg.events?.some(e => e.type === 'final');
+		if (isFinal && lastProcessedCharIndexRef.current < content.length) {
+			const remaining = content.substring(lastProcessedCharIndexRef.current).trim();
+			if (remaining.length > 0) {
+				sentenceQueueRef.current.push(remaining);
+				lastProcessedCharIndexRef.current = content.length;
+			}
+		}
+		
+		// 4. Trigger queue processing
+		if (!isPlayingQueueRef.current && sentenceQueueRef.current.length > 0) {
+			processSentenceQueue(lastMsg.id);
+		}
+	}, [activeMessages, voiceConfig]);
+
 	const renderAgentEvents = (events: AgentLoopEvent[], keyId: string) => {
 		if (!events.length) return null;
 		const terminalEvent = [...events].reverse().find((event) => event.type === "final" || event.type === "error");
@@ -1061,13 +1220,23 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 
 				try {
 					const baseUrl = (import.meta.env.VITE_API_URL || "http://localhost:5454").replace(/\/$/, "");
+					
+					// Parallelize config fetching and transcription upload
+					const configPromise = fetch(`${baseUrl}/api/integrations/status`).then(r => r.json());
+					
 					const formData = new FormData();
 					formData.append("file", audioBlob, "recording.webm");
 
-					const resp = await fetch(`${baseUrl}/api/voice/transcribe`, {
+					const transcribePromise = fetch(`${baseUrl}/api/voice/transcribe`, {
 						method: "POST",
 						body: formData,
 					});
+
+					const [freshConfig, resp] = await Promise.all([configPromise, transcribePromise]);
+					
+					const cfg = freshConfig?.voice?.effective;
+					const isAutoSubmit = cfg?.auto_submit === true || cfg?.auto_submit === "true";
+					console.log("[Transcribe] Config & Transcribe finished in parallel:", { auto_submit: cfg?.auto_submit, isAutoSubmit });
 
 					if (!resp.ok) {
 						throw new Error(`Transcription failed: ${await resp.text()}`);
@@ -1075,10 +1244,20 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 
 					const data = await resp.json();
 					if (data.ok && data.text) {
-						setGoal(data.text);
+						const transcribedText = data.text.trim();
+						setGoal(transcribedText);
 						if (textareaRef.current) {
 							textareaRef.current.focus();
 							setTimeout(() => resizeTextarea(), 0);
+						}
+						// Auto-submit if enabled - use FRESH config from API fetch above
+						if (isAutoSubmit && transcribedText) {
+							console.log("[Auto-submit] Submitting immediately:", transcribedText);
+							setIsListening(false);
+							setGoal(transcribedText);
+							setTimeout(() => {
+								handleExecute(transcribedText);
+							}, 300);
 						}
 					}
 				} catch (err: any) {
@@ -1766,7 +1945,7 @@ export function AgentExecutor({ wsConnected, onToggleSettings }: AgentExecutorPr
 						</button>
 					</div>
 
-					<div className="right-actions" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+<div className="right-actions" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
 						<button
 							className="submit-btn"
 							onClick={handleExecute}

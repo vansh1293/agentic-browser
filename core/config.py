@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     elevenlabs_api_key: str = ""
     cartesia_api_key: str = ""
+    groq_api_key: str = ""
 
     # ── Composio Tool Router ──────────────────────────────────────────────────
     composio_api_key: str = ""

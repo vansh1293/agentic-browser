@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { 
-  Settings2, X, Link as LinkIcon, 
+import {
+  Settings2, X, ChevronDown, Link as LinkIcon,
   Bot, Server, Wrench, Globe, HardDrive, Database,
-  Info, KeyRound, Zap, Trash2, Activity, ShieldAlert, Volume2, Mic, MicOff
+  Info, KeyRound, Zap, Trash2, Activity, ShieldAlert, Volume2, Mic, MicOff,
+  Palette, Sun, Moon, Monitor, Send
 } from "lucide-react";
 import { sharedQueryKeys, useDebugStatsQuery, useIntegrationsStatusQuery } from "@agentic-browser/shared/query";
 import {
@@ -27,6 +28,58 @@ import {
 // ── Components ────────────────────────────────────────────────────────────────
 function Modal(props: { title: string; onClose: () => void; children: React.ReactNode }) {
   return <SharedModal {...props} zIndex={20002} />;
+}
+
+function AppearanceSection({ theme, onChange }: { theme: any, onChange: (t: any) => void }) {
+  const themes = [
+    { id: "dark", label: "Dark", icon: Moon },
+    { id: "light", label: "Light", icon: Sun },
+    { id: "system", label: "System", icon: Monitor },
+  ];
+
+  return (
+    <Section title="Appearance" icon={Palette} defaultOpen={true}>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(3, 1fr)",
+        gap: 12,
+        background: "var(--input-bg)",
+        padding: 8,
+        borderRadius: 12,
+        border: "1px solid var(--border-color)",
+      }}>
+        {themes.map((t) => {
+          const isActive = theme === t.id;
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.id}
+              onClick={() => onChange(t.id)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                padding: "16px 8px",
+                borderRadius: 8,
+                border: isActive ? "1px solid var(--accent-color)" : "1px solid transparent",
+                background: isActive ? "var(--accent-glow)" : "transparent",
+                color: isActive ? "var(--accent-color)" : "var(--text-muted)",
+                cursor: "pointer",
+                transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                outline: "none",
+                boxShadow: isActive ? "0 4px 12px rgba(232, 121, 160, 0.15)" : "none",
+              }}
+            >
+              <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+              <span style={{ fontSize: 11, fontWeight: isActive ? 600 : 500 }}>{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
 }
 
 // ── Sections ──────────────────────────────────────────────────────────────────
@@ -85,12 +138,12 @@ function LLMSection({ llm, onRefresh }: { llm: any; onRefresh: () => void }) {
 
   return (
     <Section title="Cognitive Engine (LLM)" icon={Bot} defaultOpen={true}>
-      <div style={{ 
-        fontSize: 11, color: "var(--text-muted)", marginBottom: 20, padding: "10px 14px", 
-        background: "var(--input-bg)", borderLeft: "3px solid var(--accent-color)", 
+      <div style={{
+        fontSize: 11, color: "var(--text-muted)", marginBottom: 20, padding: "10px 14px",
+        background: "var(--input-bg)", borderLeft: "3px solid var(--accent-color)",
         borderRadius: "0 4px 4px 0", fontFamily: "var(--font-mono, monospace)"
       }}>
-        <span style={{ color: "var(--text-primary)" }}>SRC: {llm.effective.source.toUpperCase()}</span> 
+        <span style={{ color: "var(--text-primary)" }}>SRC: {llm.effective.source.toUpperCase()}</span>
         <span style={{ margin: "0 8px", opacity: 0.5 }}>|</span>
         MODEL: {llm.effective.provider}/{llm.effective.model}
         <span style={{ margin: "0 8px", opacity: 0.5 }}>|</span>
@@ -299,17 +352,17 @@ function MemorySection({ stats, onRefresh }: { stats: any; onRefresh: () => void
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
         <div style={{ background: "var(--input-bg)", padding: 12, borderRadius: 6, border: "1px solid var(--border-color)" }}>
           <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Active Claims</div>
-          <div style={{ fontSize: 20, fontWeight: 800 }}>{stats.total_active || 0}</div>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>{stats?.total_active || 0}</div>
         </div>
         <div style={{ background: "var(--input-bg)", padding: 12, borderRadius: 6, border: "1px solid var(--border-color)" }}>
           <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Sources</div>
-          <div style={{ fontSize: 20, fontWeight: 800 }}>{stats.sources || 0}</div>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>{stats?.sources || 0}</div>
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <Row><div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}><Zap size={14} color="#f59e0b" /><span>Short-term</span></div><span style={{ fontWeight: 600 }}>{stats.short_term || 0}</span></Row>
-        <Row><div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}><Activity size={14} color="#8b5cf6" /><span>Long-term</span></div><span style={{ fontWeight: 600 }}>{stats.long_term || 0}</span></Row>
-        <Row noBorder><div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}><ShieldAlert size={14} color="#10b981" /><span>Permanent</span></div><span style={{ fontWeight: 600 }}>{stats.permanent || 0}</span></Row>
+        <Row><div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}><Zap size={14} color="#f59e0b" /><span>Short-term</span></div><span style={{ fontWeight: 600 }}>{stats?.short_term || 0}</span></Row>
+        <Row><div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}><Activity size={14} color="#8b5cf6" /><span>Long-term</span></div><span style={{ fontWeight: 600 }}>{stats?.long_term || 0}</span></Row>
+        <Row noBorder><div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}><ShieldAlert size={14} color="#10b981" /><span>Permanent</span></div><span style={{ fontWeight: 600 }}>{stats?.permanent || 0}</span></Row>
       </div>
       <button onClick={handleClear} disabled={clearing} style={{ ...btnStyle("danger"), width: "100%", marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
         <Trash2 size={14} />{clearing ? "Clearing..." : "Nuclear Reset"}
@@ -393,7 +446,7 @@ function SecretRow({ secret, onChange }: { secret: any, onChange: () => void }) 
       <div style={{ display: "flex", gap: 8 }}>
         {isEditing ? (
           <>
-            <input 
+            <input
               type="password"
               value={value}
               onChange={(e) => setValue(e.target.value)}
@@ -427,9 +480,25 @@ function VoiceSection({ voice, onRefresh }: { voice: any, onRefresh: () => void 
     setConfig(next);
     setSaving(true);
     try {
+      console.log("Saving voice config:", next);
       await api.voiceSet(next);
-      onRefresh();
+      // Force reload after save - emit FRESH data
+      setTimeout(async () => {
+        try {
+          const res = await api.integrationsStatus();
+          const freshVoice = res?.voice?.effective;
+          if (freshVoice) {
+            setConfig(freshVoice);
+            onRefresh?.();
+            console.log("Voice config reloaded after save:", freshVoice);
+            window.dispatchEvent(new CustomEvent('voice-config-updated', { detail: freshVoice }));
+          }
+        } catch (e) {
+          console.error("Failed to reload voice config:", e);
+        }
+      }, 500);
     } catch (e) {
+      console.error("Failed to save voice config:", e);
       alert("Failed to save voice config");
     } finally {
       setSaving(false);
@@ -446,8 +515,8 @@ function VoiceSection({ voice, onRefresh }: { voice: any, onRefresh: () => void 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           <div>
             <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase" }}>STT Provider</label>
-            <select 
-              value={config.stt_provider || "whisper_local"} 
+            <select
+              value={config.stt_provider || "whisper_local"}
               onChange={(e) => save({ stt_provider: e.target.value })}
               style={{ width: "100%", background: "var(--input-bg)", border: "1px solid var(--border-color)", color: "var(--text-primary)", padding: "6px", borderRadius: 4, fontSize: 11 }}
             >
@@ -458,7 +527,7 @@ function VoiceSection({ voice, onRefresh }: { voice: any, onRefresh: () => void 
           </div>
           <div>
             <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase" }}>STT Model</label>
-            <input 
+            <input
               type="text"
               value={config.stt_model || ""}
               onBlur={(e) => save({ stt_model: e.target.value })}
@@ -471,8 +540,8 @@ function VoiceSection({ voice, onRefresh }: { voice: any, onRefresh: () => void 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           <div>
             <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase" }}>TTS Provider</label>
-            <select 
-              value={config.tts_provider || "browser_native"} 
+            <select
+              value={config.tts_provider || "browser_native"}
               onChange={(e) => save({ tts_provider: e.target.value })}
               style={{ width: "100%", background: "var(--input-bg)", border: "1px solid var(--border-color)", color: "var(--text-primary)", padding: "6px", borderRadius: 4, fontSize: 11 }}
             >
@@ -484,7 +553,7 @@ function VoiceSection({ voice, onRefresh }: { voice: any, onRefresh: () => void 
           </div>
           <div>
             <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase" }}>TTS Voice</label>
-            <input 
+            <input
               type="text"
               value={config.tts_voice || ""}
               onBlur={(e) => save({ tts_voice: e.target.value })}
@@ -496,12 +565,21 @@ function VoiceSection({ voice, onRefresh }: { voice: any, onRefresh: () => void 
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
-          <input 
-            type="checkbox" 
-            checked={config.auto_submit || false} 
+          <input
+            type="checkbox"
+            checked={config.auto_submit || false}
             onChange={(e) => save({ auto_submit: e.target.checked })}
           />
           <span style={{ fontSize: 11, color: "var(--text-primary)" }}>Auto-submit after voice input</span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+          <input
+            type="checkbox"
+            checked={config.auto_speak || false}
+            onChange={(e) => save({ auto_speak: e.target.checked })}
+          />
+          <span style={{ fontSize: 11, color: "var(--text-primary)" }}>Auto-speak agent responses</span>
         </div>
 
         <div style={{ marginBottom: 8 }}>
@@ -514,7 +592,7 @@ function VoiceSection({ voice, onRefresh }: { voice: any, onRefresh: () => void 
         </div>
 
         {voice.effective.source === "db" && (
-          <button 
+          <button
             onClick={async () => {
               if (confirm("Reset voice to system defaults?")) {
                 await api.voiceClear();
@@ -531,11 +609,85 @@ function VoiceSection({ voice, onRefresh }: { voice: any, onRefresh: () => void 
   );
 }
 
+function TelegramBotSection({ telegram, onRefresh }: { telegram: any, onRefresh: () => void }) {
+  const [token, setToken] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.secretSet("telegram_bot_token", token);
+      setIsEditing(false);
+      setToken("");
+      onRefresh();
+    } catch (e) {
+      alert("Failed to save token");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clear = async () => {
+    if (!confirm("Clear Telegram bot token?")) return;
+    try {
+      await api.secretClear("telegram_bot_token");
+      onRefresh();
+    } catch (e) {
+      alert("Failed to clear token");
+    }
+  };
+
+  return (
+    <Section title="Telegram Bot" icon={Send}>
+      <div style={{ padding: 16, background: "var(--bg-2)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>Bot Authentication</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+              <StatusPill ok={telegram?.configured} label={telegram?.configured ? "CONFIGURED" : "MISSING"} />
+              <span style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                {telegram?.token_source === "db" ? "(DATABASE OVERRIDE)" : telegram?.token_source === "env" ? "(ENVIRONMENT)" : ""}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {isEditing ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="Paste bot token here..."
+              style={{ width: "100%", padding: "8px", background: "var(--input-bg)", border: "1px solid var(--border-color)", color: "var(--text-primary)", borderRadius: 4, fontSize: 11 }}
+              autoFocus
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={save} disabled={saving || !token} style={{ ...btnStyle("primary"), flex: 1 }}>{saving ? "Saving..." : "Save Token"}</button>
+              <button onClick={() => setIsEditing(false)} style={{ ...btnStyle(), flex: 1 }}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setIsEditing(true)} style={{ ...btnStyle(), flex: 1 }}>
+              {telegram?.configured ? "Update Token" : "Configure Token"}
+            </button>
+            {telegram?.token_source === "db" && (
+              <button onClick={clear} style={{ ...btnStyle("danger"), flex: 1 }}>Clear</button>
+            )}
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 // ── Main Layout ───────────────────────────────────────────────────────────────
 
 const getBase = () => localStorage.getItem("baseUrl") || "http://localhost:5454";
 
-export function UnifiedSettingsMenu({ isOpen, onToggle, handleLogout }: any) {
+export function UnifiedSettingsMenu({ isOpen, onToggle, handleLogout, themePreference, onThemeChange }: any) {
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useIntegrationsStatusQuery(getBase, { enabled: isOpen, refetchInterval: 8000 });
   const { data: stats } = useDebugStatsQuery(getBase, { enabled: isOpen, refetchInterval: 8000 });
@@ -567,16 +719,18 @@ export function UnifiedSettingsMenu({ isOpen, onToggle, handleLogout }: any) {
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px" }}>
         {isLoading && !data ? <div style={{ textAlign: "center", padding: 40 }}>Initializing...</div> : data ? (
           <>
+            <AppearanceSection theme={themePreference} onChange={onThemeChange} />
             <ConnectionsSection status={data.composio} config={data.composio_config} onRefresh={refresh} />
             <VoiceSection voice={data.voice} onRefresh={refresh} />
             <LLMSection llm={data.llm} onRefresh={refresh} />
+            {data.telegram && <TelegramBotSection telegram={data.telegram} onRefresh={refresh} />}
             <MemorySection stats={memStats} onRefresh={refresh} />
             <SearchSection search={data.search} onRefresh={refresh} />
             <PyJIITSection pyjiit={data.pyjiit} onRefresh={refresh} />
-            
+
             <Section title="Native Tools Library" icon={Wrench}>
               {data.native_tools?.map?.((t, i) => (
-                <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "var(--input-bg)", borderBottom: i === data.native_tools.length-1 ? "none" : "1px solid var(--border-color)" }}>
+                <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "var(--input-bg)", borderBottom: i === data.native_tools.length - 1 ? "none" : "1px solid var(--border-color)" }}>
                   <strong style={{ fontSize: 12, fontFamily: "var(--font-mono)" }}>{t.label}</strong>
                   <span style={{ fontSize: 10, textTransform: "uppercase", color: "var(--text-muted)" }}>{t.auth}</span>
                 </div>
@@ -585,7 +739,7 @@ export function UnifiedSettingsMenu({ isOpen, onToggle, handleLogout }: any) {
 
             <Section title="Registered Agents" icon={HardDrive}>
               {data.agents?.map?.((a, i) => (
-                <div key={a.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "var(--input-bg)", borderBottom: i === data.agents.length-1 ? "none" : "1px solid var(--border-color)" }}>
+                <div key={a.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "var(--input-bg)", borderBottom: i === data.agents.length - 1 ? "none" : "1px solid var(--border-color)" }}>
                   <strong style={{ fontSize: 13 }}>{a.label}</strong>
                   <code style={{ fontSize: 10, color: "var(--text-muted)" }}>{a.module}</code>
                 </div>
@@ -594,7 +748,7 @@ export function UnifiedSettingsMenu({ isOpen, onToggle, handleLogout }: any) {
 
             <Section title="System Infrastructure" icon={Server}>
               {Object.entries(data.infra || {}).map(([k, v]: [string, any], i, arr) => (
-                <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "var(--input-bg)", borderBottom: i === arr.length-1 ? "none" : "1px solid var(--border-color)" }}>
+                <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "var(--input-bg)", borderBottom: i === arr.length - 1 ? "none" : "1px solid var(--border-color)" }}>
                   <strong style={{ fontSize: 12, textTransform: "uppercase", color: "var(--text-muted)" }}>{k}</strong>
                   <StatusPill ok={v.ok} label={v.ok ? "ONLINE" : "OFFLINE"} />
                 </div>

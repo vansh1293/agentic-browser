@@ -72,6 +72,11 @@ SECRET_REGISTRY: dict[str, tuple[str, str, str | None]] = {
         "CARTESIA_API_KEY",
         "cartesia_api_key",
     ),
+    "groq_api_key": (
+        "secrets.groq_api_key",
+        "GROQ_API_KEY",
+        "groq_api_key",
+    ),
     "telegram_bot_token": (
         "secrets.telegram_bot_token",
         "TELEGRAM_BOT_TOKEN",

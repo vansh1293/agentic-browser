@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Info, Settings2, Link as LinkIcon, Bot, Server, Wrench, KeyRound, Globe, HardDrive, Database, Mic, Send } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Info, ChevronDown, Settings2, Link as LinkIcon, Bot, Server, Wrench, KeyRound, Globe, HardDrive, Database, Mic, Volume2, Send } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { sharedQueryKeys, useIntegrationsStatusQuery } from "@agentic-browser/shared/query";
 import {
@@ -597,26 +597,47 @@ function VoiceSection({ voice, onChange }: { voice: any; onChange: () => void })
   const qc = useQueryClient();
   const mutation = useMutation({
     mutationFn: (vals: any) => api.voiceSet(vals),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["integrations-status"] });
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["integrations-status"] });
+      // Refetch to get fresh data
+      const fresh = await qc.fetchQuery({ queryKey: ["integrations-status"] });
+      const freshVoice = fresh?.voice?.effective;
+      setLocal(freshVoice);
       onChange();
+      // Emit with FRESH data
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('voice-config-updated', { detail: freshVoice }));
+      }, 100);
     },
   });
 
   const clearMutation = useMutation({
     mutationFn: api.voiceClear,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["integrations-status"] });
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["integrations-status"] });
+      const fresh = await qc.fetchQuery({ queryKey: ["integrations-status"] });
+      const freshVoice = fresh?.voice?.effective;
+      setLocal(freshVoice);
       onChange();
+      // Emit with fresh data after reset
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('voice-config-updated', { detail: freshVoice }));
+      }, 100);
     },
   });
 
   const [local, setLocal] = useState(voice.effective);
+  
+  // Sync local when voice.effective changes from outside
+  useEffect(() => {
+    setLocal(voice.effective);
+  }, [voice.effective]);
 
   const save = (patch: any) => {
     const next = { ...local, ...patch };
     setLocal(next);
-    mutation.mutate(patch);
+    // Send the FULL updated object, not just patch
+    mutation.mutate(next);
   };
 
   return (
@@ -685,6 +706,15 @@ function VoiceSection({ voice, onChange }: { voice: any; onChange: () => void })
             onChange={(e) => save({ auto_submit: e.target.checked })}
           />
           <label style={{ margin: 0, fontWeight: 500, fontSize: 13, color: "var(--text-primary)" }}>Auto-submit after voice input</label>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input 
+            type="checkbox" 
+            checked={local.auto_speak} 
+            onChange={(e) => save({ auto_speak: e.target.checked })}
+          />
+          <label style={{ margin: 0, fontWeight: 500, fontSize: 13, color: "var(--text-primary)" }}>Auto-speak agent responses</label>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1220,15 +1250,15 @@ export function SettingsPanel() {
       </div>
       
       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-        <ConnectionsSection status={data.composio} config={data.composio_config} onChange={onChange} />
-        <LLMSection llm={data.llm} onChange={onChange} />
-        <SearchSection search={data.search} onChange={onChange} />
-        <VoiceSection voice={data.voice} onChange={onChange} />
-        <PyJIITSection pyjiit={data.pyjiit} onChange={onChange} />
-        <TelegramBotSection telegram={data.telegram} onChange={onChange} />
-        <NativeToolsSection tools={data.native_tools} />
-        <AgentsSection agents={data.agents} />
-        <InfraSection infra={data.infra} />
+        {data.composio && <ConnectionsSection status={data.composio} config={data.composio_config} onChange={onChange} />}
+        {data.llm && <LLMSection llm={data.llm} onChange={onChange} />}
+        {data.search && <SearchSection search={data.search} onChange={onChange} />}
+        {data.voice && <VoiceSection voice={data.voice} onChange={onChange} />}
+        {data.pyjiit && <PyJIITSection pyjiit={data.pyjiit} onChange={onChange} />}
+        {data.telegram && <TelegramBotSection telegram={data.telegram} onChange={onChange} />}
+        {data.native_tools && <NativeToolsSection tools={data.native_tools} />}
+        {data.agents && <AgentsSection agents={data.agents} />}
+        {data.infra && <InfraSection infra={data.infra} />}
       </div>
     </div>
   );
