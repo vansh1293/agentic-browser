@@ -125,24 +125,43 @@ async def transcribe_voice(file: UploadFile = File(...)):
                     status_code=400, detail="Groq API key not configured"
                 )
 
-            from groq import Groq
+            try:
+                from groq import Groq
 
-            client = Groq(api_key=api_key)
-            # Map local model names to Groq equivalents if needed
-            model = stt_model
-            if not model or model in ["tiny", "base", "small", "medium", "large", "whisper-1"]:
-                model = "whisper-large-v3"
+                client = Groq(api_key=api_key)
+                # Map local model names to Groq equivalents if needed
+                model = stt_model
+                if not model or model in [
+                    "tiny",
+                    "base",
+                    "small",
+                    "medium",
+                    "large",
+                    "whisper-1",
+                ]:
+                    model = "whisper-large-v3"
 
-            with open(temp_file_path, "rb") as audio_file:
-                response = client.audio.transcriptions.create(
-                    file=(str(temp_file_path), audio_file.read()),
-                    model=model,
-                    response_format="json",
-                    language="en",  # Always English as requested
-                )
-            full_transcript = response.text
-            detected_lang = "en"
-            prob = 1.0
+                with open(temp_file_path, "rb") as audio_file:
+                    response = client.audio.transcriptions.create(
+                        file=(str(temp_file_path), audio_file.read()),
+                        model=model,
+                        response_format="json",
+                        language="en",  # Always English as requested
+                    )
+                full_transcript = response.text
+                detected_lang = "en"
+                prob = 1.0
+            except Exception as e:
+                logger.error(f"Groq transcription failed, falling back to local: {e}")
+                # Fallback to local whisper
+                model = get_whisper_model(stt_model or "tiny")
+                segments, info = model.transcribe(str(temp_file_path), beam_size=5)
+                transcript_parts = []
+                for segment in segments:
+                    transcript_parts.append(segment.text)
+                full_transcript = " ".join(transcript_parts).strip()
+                detected_lang = info.language
+                prob = info.language_probability
         else:
             raise HTTPException(
                 status_code=400, detail=f"Unsupported STT provider: {stt_provider}"
