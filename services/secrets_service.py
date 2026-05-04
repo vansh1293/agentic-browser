@@ -72,6 +72,11 @@ SECRET_REGISTRY: dict[str, tuple[str, str, str | None]] = {
         "CARTESIA_API_KEY",
         "cartesia_api_key",
     ),
+    "telegram_bot_token": (
+        "secrets.telegram_bot_token",
+        "TELEGRAM_BOT_TOKEN",
+        "telegram_bot_token",
+    ),
 }
 
 
@@ -339,6 +344,16 @@ class SecretsService:
             "username": creds.get("username") or None,
             "password_masked": mask(creds.get("password")),
             "configured": bool(creds.get("username") and creds.get("password")),
+        }
+
+    # ── Telegram bot ───────────────────────────────────────────────────────
+    async def telegram_public(self) -> dict[str, Any]:
+        resolved = await self.resolve("telegram_bot_token")
+        row = await self._state.get_setting("secrets.telegram_bot_token")
+        return {
+            "token_masked": mask(resolved),
+            "token_source": "db" if row and row.get("value") else ("env" if resolved else "unset"),
+            "configured": bool(resolved),
         }
 
 

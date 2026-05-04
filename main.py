@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 import anyio
+import asyncio
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -78,6 +79,15 @@ async def lifespan(app: FastAPI):
         logger.warning("LLM default resolution skipped: %s", exc)
 
     try:
+        from services.telegram_bot_runner import run_telegram_bot
+
+        bot_task = asyncio.create_task(run_telegram_bot())
+        app.state.bot_task = bot_task
+        logger.info("Telegram bot task created.")
+    except Exception as exc:
+        logger.warning("Telegram bot init skipped: %s", exc)
+
+    try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
         from memory.maintenance.consolidation import ConsolidationRunner
@@ -114,6 +124,11 @@ async def lifespan(app: FastAPI):
 
     if hasattr(app.state, "scheduler"):
         app.state.scheduler.shutdown(wait=False)
+
+    if hasattr(app.state, "bot_task"):
+        app.state.bot_task.cancel()
+        await asyncio.gather(app.state.bot_task, return_exceptions=True)
+
     try:
         neo4j = get_neo4j()
         await neo4j.close()

@@ -296,6 +296,7 @@ async def status():
             "effective": await _voice_effective(),
             "secrets": await _voice_secrets(),
         },
+        "telegram": await sec.telegram_public(),
         "native_tools": NATIVE_TOOLS,
         "agents": REGISTERED_AGENTS,
         "infra": await _infra_status(),

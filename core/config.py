@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     composio_api_key: str = ""
     composio_user_id: str = ""
 
+    # ── Telegram bot ─────────────────────────────────────────────────────────
+    telegram_bot_token: str = ""
+
     # ── OAuth credential storage ──────────────────────────────────────────────
     # 32-byte key, base64-url-encoded. Generate with:
     #   python -c "import os,base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
