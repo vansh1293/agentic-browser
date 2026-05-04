@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Info, Settings2, Link as LinkIcon, Bot, Server, Wrench, KeyRound, Globe, HardDrive, Database, Mic } from "lucide-react";
+import { Info, Settings2, Link as LinkIcon, Bot, Server, Wrench, KeyRound, Globe, HardDrive, Database, Mic, Send } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { sharedQueryKeys, useIntegrationsStatusQuery } from "@agentic-browser/shared/query";
 import {
@@ -20,6 +20,7 @@ import {
   type ComposioToolkit,
   type ComposioToolSummary,
   type PyJIITPublic,
+  type TelegramBotPublic,
 } from "../lib/api";
 
 const COMPOSIO_SUGGESTED = ["gmail", "googlecalendar", "github", "notion", "slack", "linear", "linkedin", "instagram", "aeroleads"];
@@ -1066,6 +1067,114 @@ function InfraSection({ infra }: { infra: IntegrationsStatus["infra"] }) {
   );
 }
 
+// ── Telegram bot token ────────────────────────────────────────────────────────
+
+function TelegramBotSection({ telegram, onChange }: { telegram: TelegramBotPublic; onChange: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [token, setToken] = useState("");
+  const [showGuideModal, setShowGuideModal] = useState(false);
+
+  const save = useMutation({
+    mutationFn: () => api.secretSet("telegram_bot_token", token),
+    onSuccess: () => {
+      setEditing(false);
+      setToken("");
+      onChange();
+    },
+  });
+  const clear = useMutation({
+    mutationFn: () => api.secretClear("telegram_bot_token"),
+    onSuccess: onChange,
+  });
+
+  return (
+    <Section title="Telegram Bot" icon={Send}>
+      <Row>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <strong style={{ fontSize: 13 }}>Bot Token</strong>
+            <button
+              onClick={() => setShowGuideModal(true)}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", color: "var(--text-muted)" }}
+              title="How to get a bot token?"
+            >
+              <Info size={14} />
+            </button>
+            <StatusPill ok={telegram.configured} label={telegram.configured ? "configured" : "missing"} />
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono, monospace)" }}>
+            TOKEN ({telegram.token_source}): <span>{telegram.token_masked || "—"}</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button style={btnStyle()} onClick={() => setEditing(true)}>Configure</button>
+          {telegram.token_source === "db" && (
+            <button style={btnStyle("danger")} onClick={() => clear.mutate()} disabled={clear.isPending}>
+              Reset
+            </button>
+          )}
+        </div>
+      </Row>
+
+      {showGuideModal && (
+        <Modal title="Telegram Bot Setup Guide" onClose={() => setShowGuideModal(false)}>
+          <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.6 }}>
+            <p><strong>BotFather</strong> is Telegram's official bot for creating and managing bots. It takes under a minute to get a token.</p>
+            <hr style={{ border: "none", borderTop: "1px solid var(--border-color)", margin: "16px 0" }} />
+            <h4 style={{ margin: "0 0 8px 0", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)" }}>Setup Instructions</h4>
+            <ol style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+              <li>Open Telegram and search for <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" style={{ color: "var(--accent-color)", textDecoration: "none" }}>@BotFather</a>, or tap that link on mobile.</li>
+              <li>Send the command <code style={{ background: "rgba(0,0,0,0.07)", padding: "2px 6px", borderRadius: 4 }}>/newbot</code> and follow the prompts.</li>
+              <li>Choose a <strong>display name</strong> (e.g. <em>My Agentic Bot</em>) and a <strong>username</strong> that ends in <code style={{ background: "rgba(0,0,0,0.07)", padding: "2px 6px", borderRadius: 4 }}>bot</code> (e.g. <em>my_agentic_bot</em>).</li>
+              <li>BotFather will reply with your token — a string like <code style={{ background: "rgba(0,0,0,0.07)", padding: "2px 6px", borderRadius: 4 }}>123456:ABC-DEF…</code>. Copy it.</li>
+              <li>Click <strong>Configure</strong> in this panel, paste the token, and hit <strong>Commit</strong>.</li>
+              <li>The bot starts automatically the next time the server launches (or immediately if it is already running).</li>
+            </ol>
+            <hr style={{ border: "none", borderTop: "1px solid var(--border-color)", margin: "16px 0" }} />
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+              Each message starts a new conversation. Replying to a bot message continues that thread.
+            </p>
+          </div>
+        </Modal>
+      )}
+
+      {editing && (
+        <Modal title="Telegram Bot Configuration" onClose={() => setEditing(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <Field label="Bot Token">
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Paste token from @BotFather"
+                style={inputStyle}
+                autoFocus
+              />
+            </Field>
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              Obtain a token by messaging <code>@BotFather</code> on Telegram. Stored encrypted in the database.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center", marginTop: 8 }}>
+              <MutationState m={save} />
+              <button style={btnStyle()} onClick={() => setEditing(false)}>Cancel</button>
+              <button
+                style={btnStyle("primary")}
+                disabled={!token || save.isPending}
+                onClick={() => save.mutate()}
+              >
+                {save.isPending ? "Committing…" : "Commit"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      <div style={{ marginTop: 8 }}>
+        <MutationState m={clear} label="reset" />
+      </div>
+    </Section>
+  );
+}
+
 export function SettingsPanel() {
   const qc = useQueryClient();
   const { data, isLoading, error } = useIntegrationsStatusQuery(() => "", {
@@ -1116,6 +1225,7 @@ export function SettingsPanel() {
         <SearchSection search={data.search} onChange={onChange} />
         <VoiceSection voice={data.voice} onChange={onChange} />
         <PyJIITSection pyjiit={data.pyjiit} onChange={onChange} />
+        <TelegramBotSection telegram={data.telegram} onChange={onChange} />
         <NativeToolsSection tools={data.native_tools} />
         <AgentsSection agents={data.agents} />
         <InfraSection infra={data.infra} />

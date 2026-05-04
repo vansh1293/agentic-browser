@@ -101,6 +101,12 @@ export interface VoiceConfigPublic {
   source: "default" | "db";
 }
 
+export interface TelegramBotPublic {
+  token_masked: string | null;
+  token_source: "db" | "env" | "unset";
+  configured: boolean;
+}
+
 export interface IntegrationsStatus {
   oauth: OAuthConnection[];
   oauth_clients?: OAuthClientStatus[];
@@ -117,6 +123,7 @@ export interface IntegrationsStatus {
     effective: VoiceConfigPublic;
     secrets: SecretStatus[];
   };
+  telegram: TelegramBotPublic;
   native_tools: Array<{ id: string; label: string; auth: string }>;
   agents: Array<{ id: string; label: string; module: string }>;
   infra: Record<string, { ok: boolean; error?: string }>;

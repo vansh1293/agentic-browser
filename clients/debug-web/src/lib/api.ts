@@ -13,6 +13,7 @@ export type {
   PyJIITPublic,
   SearchConfigPublic,
   SecretStatus,
+  TelegramBotPublic,
   VoiceConfigPublic,
 } from "@agentic-browser/shared/api";
 
