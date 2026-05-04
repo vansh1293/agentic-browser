@@ -1,0 +1,37 @@
+{
+  "name": "@agentic-browser/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "types": "./src/api/index.d.ts",
+  "exports": {
+    "./api": {
+      "types": "./src/api/index.d.ts",
+      "default": "./src/api/index.ts"
+    },
+    "./query": {
+      "types": "./src/query/index.d.ts",
+      "default": "./src/query/index.ts"
+    },
+    "./markdown": {
+      "types": "./src/markdown/index.d.ts",
+      "default": "./src/markdown/index.ts"
+    },
+    "./settings-ui": {
+      "types": "./src/settings-ui/index.d.ts",
+      "default": "./src/settings-ui/index.ts"
+    }
+  },
+  "dependencies": {
+    "html-react-parser": "^5.2.7",
+    "markdown-it": "^14.1.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^11.12.0",
+    "react-syntax-highlighter": "^15.6.1"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "lucide-react": ">=0.468.0",
+    "react": ">=18 <20"
+  }
+}

@@ -214,4 +214,12 @@ __marimo__/
 .opencode/
 .codex/
 
+node_modules/
+.pnpm-store/
+clients/*/node_modules/
+clients/*/dist/
+clients/*/tsconfig.tsbuildinfo
+clients/browser-extension/.output/
+clients/browser-extension/.wxt/
+
 uploads/
